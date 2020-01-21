@@ -11,7 +11,9 @@ mkdir "Outputs/gANI";
 mkdir "Outputs/jANI";
 #this program uses FASTA formated genomes/contigs. This should catch most of the extensions for those and related files.
 my @genomefiles = glob "*.fna *.fasta *.contig *.fa *.contigs";
-my ($coverage,$identity,$bootnum);
+my $coverage = .7;
+my $identity = .7;
+my $bootnum = 0;
 my $evalue = "1E-4";
 #variable for the blast search such that the user can switch between different default configurations
 my $task = "";
@@ -23,12 +25,7 @@ if (!exists $ARGV[0]){
 	die "\nNo inputs detected, please use Default, or type -H for assistance.\n\n";
 }
 elsif ($ARGV[0] eq "-H"){
-	die "\nThe following options are available:\n\n\t-ID:# - The identity cutoff value (0-100).\n\t-CV:# - The coverage cutoff value (0-100).\n\t-BT:# - The number of nonparametric bootstraps for tree building (0-n).\n\t-EVAL:# - Change E-Value cutoff of BLAST search.\n\t-TASK:'task name' If you wish to change which default settings BLAST uses for its search criteria.\n\tD - Uses default search criteria as described in Gosselin et al. 2019.\n\nIf you encounter negative values in your matrix, or critical errors send an email to seangosselinofficial\@gmail.com. I will try to answer in a reasonable fassion.\n\n\n";
-}
-elsif ($ARGV[0] eq "-D"){
-	$identity = .7;
-	$coverage = .7;
-	$bootnum = 100;
+	die "\nThe following options are available:\n\n\t-ID:# - The identity cutoff value (0-100).\n\t-CV:# - The coverage cutoff value (0-100).\n\t-BT:# - The number of nonparametric bootstraps for tree building (0-n).\n\t-EVAL:# - Change E-Value cutoff of BLAST search.\n\t-TASK:'task name' If you wish to change which default settings BLAST uses for its search criteria.\n\nIf you encounter negative values in your matrix, or critical errors send an email to sean.gosselin\@uconn.edu. I will try to answer in a reasonable fassion.\n\n\n";
 }
 else{
 	foreach my $Inputs (@ARGV){
