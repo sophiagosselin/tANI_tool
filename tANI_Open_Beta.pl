@@ -10,7 +10,7 @@ mkdir "Outputs/Distance";
 mkdir "Outputs/gANI";
 mkdir "Outputs/jANI";
 #this program uses FASTA formated genomes/contigs. This should catch most of the extensions for those and related files.
-my @genomefiles = glob "*.fna *.fasta *.faa *.contig *.fa *.contigs";
+my @genomefiles = glob "*.fna *.fasta *.contig *.fa *.contigs";
 my ($coverage,$identity,$bootnum);
 my $evalue = "1E-4";
 #variable for the blast search such that the user can switch between different default configurations
