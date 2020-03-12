@@ -1,7 +1,7 @@
 # tANI_Matrix
 This perl script allows one to reconstruct the results of https://doi.org/10.1101/2020.01.15.908137.
 
-You will need to have the latest version of blast+ installed.* 
+You will need to have the latest version of blast+ installed.* Additionally you will need a version of Perl that supports Perl threads. 
 
 To run, include the script in the same working directory as the genomes you wish to make a phylogeny of. Genome files should be in fasta format.
 
