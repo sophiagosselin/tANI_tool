@@ -27,9 +27,9 @@ if (!exists $ARGV[0]){
 	die "\nNo inputs detected, please use Default, or type -H for assistance.\n\n";
 }
 elsif ($ARGV[0] eq "-H"){
-	die "\nThe following options are available:\n\n\t-ID:# - The identity cutoff value (0-100).\n\t-CV:# - The coverage cutoff value (0-100).\n\t-BT:# - The number of nonparametric bootstraps for tree building (0-n).\n\t-EVAL:# - Change E-Value cutoff of BLAST search.\n\t-TASK:'task name' If you wish to change which default settings BLAST uses for its search criteria.\n\tDefault - Uses default search criteria as described in Gosselin et al. 2019.\n\nIf you encounter negative values in your matrix, or critical errors send an email to seangosselinofficial\@gmail.com. I will try to answer in a reasonable fassion.\n\n\n";
+	die "\nThe following options are available:\n\n\t-ID:# - The identity cutoff value (0-100).\n\t-CV:# - The coverage cutoff value (0-100).\n\t-BT:# - The number of nonparametric bootstraps for tree building (0-n).\n\t-EVAL:# - Change E-Value cutoff of BLAST search.\n\t-TASK:'task name' If you wish to change which default settings BLAST uses for its search criteria.\n\t-Default - Uses default search criteria as described in Gosselin et al. 2020.\n\nIf you encounter negative values in your matrix, or critical errors send an email to sean.gosselin\@uconn.edu. I will try to answer in a reasonable fassion.\n\n\n";
 }
-elsif ($ARGV[0] eq "Default"){
+elsif ($ARGV[0] eq "-Default"){
 	$identity = .7;
 	$coverage = .7;
 	$bootnum = 1;
@@ -61,6 +61,48 @@ else{
 		elsif  ($Inputs =~ /\-TASK\:(.*)/){
 			$task = "-task $1";
 		}
+	}
+}
+
+#Check inputs.
+#Could this be more nicely done? Yes. Will I fix this later? Yes.
+
+if($identity){}
+else{
+	print "\nIdentity value not defined. Use standard (.7)? [Y|N]\n";
+	my $idencheck = <STDIN>;
+	chomp $idencheck;
+	if($idencheck eq "Y"){
+		$identity=.7;
+	}
+	else{
+		die "Need ID value to run. Stopping.\n";
+	}
+}
+
+if($coverage){}
+else{
+	print "\nCoverage value not defined. Use standard (.7)? [Y|N]\n";
+	my $covcheck = <STDIN>;
+	chomp $covcheck;
+	if($covcheck eq "Y"){
+		$coverage=.7;
+	}
+	else{
+		die "Need CV value to run. Stopping.\n";
+	}
+}
+
+if($bootnum){}
+else{
+	print "\nBoot value not defined, do you want to use standard (100)? [Y|N]\n";
+	my $bootcheck = <STDIN>;
+	chomp $bootcheck;
+	if($bootcheck eq "Y"){
+		$bootnum=100;
+	}
+	else{
+		die "Need bootstrap (BT) count. Stopping.\n";
 	}
 }
 

@@ -259,9 +259,11 @@ sub Calculate_ANI{
 			my $jANI = ($TotalID/$HitCounter);
 			my $gANI = ($gANINumerator/$TotalShort);
 			my $AF = ($TotalShort/$GenomeLength{$_[0]});
-			my $gDistance = -log($gANINumerator/$GenomeLength{$_[0]});
+			my $wat = $AF*$gANI;
+			my $gDistance = -log($wat);
+			my $ffs = $gANINumerator/$GenomeLength{$_[0]};
 			$matrix{"$_[0]\+$name"} = "$jANI\t$gANI\t$AF\t$gDistance";
-			#print "Query: $_[0], Database: $name\njANInum: $TotalID\ngANInum: $gANINumerator\nGene_Count: $HitCounter\ngDistance: $gDistance\nQuery Length: $GenomeLength{$_[0]}\nTotal Short: $TotalShort\nJANI:\t$jANI\nGANI:\t$gANI\nAF:\t$AF\nDIST:\t$gDistance\n\n";
+			print "Query: $_[0], Database: $name\nwat: $wat\nffs?: $ffs\njANInum: $TotalID\ngANInum: $gANINumerator\nGene_Count: $HitCounter\ngDistance: $gDistance\nQuery Length: $GenomeLength{$_[0]}\nTotal Short: $TotalShort\nJANI:\t$jANI\nGANI:\t$gANI\nAF:\t$AF\nDIST:\t$gDistance\n\n";
 		}
 	}
 	$matrix{"$_[0]\+$_[0]"} = "1.0\t1.0\t1.0\t0.0";
