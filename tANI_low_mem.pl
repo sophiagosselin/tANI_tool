@@ -32,7 +32,7 @@ elsif ($ARGV[0] eq "-H"){
 elsif ($ARGV[0] eq "-Default"){
 	$identity = .7;
 	$coverage = .7;
-	$bootnum = 1;
+	$bootnum = 100;
 }
 else{
 	foreach my $Inputs (@ARGV){
