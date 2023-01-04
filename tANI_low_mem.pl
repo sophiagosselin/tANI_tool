@@ -3,6 +3,9 @@ use warnings;
 use strict;
 use threads;
 use threads::shared;
+use Getopt::Long;
+use Scalar::Util;
+use File::Copy;
 
 #Subdirectories
 mkdir "Outputs";
@@ -16,94 +19,57 @@ mkdir "Intermediates/BLAST";
 mkdir "Intermediates/blastdb";
 
 #globals
-my @genomefiles = glob "*.fna *.fasta *.faa *.contig *.fa *.contigs";
+my @genomefiles = glob "*.fna *.fasta *.contig *.contigs";
 my $evalue = "1E-4";
 my $task = "";
-my ($identity,$coverage,$bootnum);
+my $bootnum = 0;
+my ($identity,$coverage,$help);
 my (%matrix,%all_lengths,%bootmatrix):shared;
 
-#Parse Input
-if (!exists $ARGV[0]){
-	die "\nNo inputs detected, please use Default, or type -H for assistance.\n\n";
-}
-elsif ($ARGV[0] eq "-H"){
-	die "\nThe following options are available:\n\n\t-ID:# - The identity cutoff value (0-100).\n\t-CV:# - The coverage cutoff value (0-100).\n\t-BT:# - The number of nonparametric bootstraps for tree building (0-n).\n\t-EVAL:# - Change E-Value cutoff of BLAST search.\n\t-TASK:'task name' If you wish to change which default settings BLAST uses for its search criteria.\n\t-Default - Uses default search criteria as described in Gosselin et al. 2020.\n\nIf you encounter negative values in your matrix, or critical errors send an email to sean.gosselin\@uconn.edu. I will try to answer in a reasonable fassion.\n\n\n";
-}
-elsif ($ARGV[0] eq "-Default"){
-	$identity = .7;
-	$coverage = .7;
-	$bootnum = 100;
-}
-else{
-	foreach my $Inputs (@ARGV){
-		if ($Inputs =~ /\-ID\:(.*)/){
-			if ($1 < 1){
-				$identity = ($1*100);
-			}
-			else{
-				$identity = $1;
-			}
-		}
-		elsif  ($Inputs =~ /\-CV\:(.*)/){
-			if ($1 > 1){
-				$coverage = ($1/100);
-			}
-			else{
-				$coverage = $1;
-			}
-		}
-		elsif  ($Inputs =~ /\-BT\:(.*)/){
-			$bootnum = $1;
-		}
-		elsif  ($Inputs =~ /\-EVAL\:(.*)/){
-			$evalue = $1;
-		}
-		elsif  ($Inputs =~ /\-TASK\:(.*)/){
-			$task = "-task $1";
-		}
-	}
+#get_inputs
+GetOptions('task' =>\$task, 'id=s' => \$identity, 'ev=s' => \$evalue, 'cv=s' => \$coverage, 'boot=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help);
+
+#help output
+if($help==1){
+	die
+	"\ntANI tool v1.2 Updated from tANI_low_mem.pl\n
+	Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.\n
+	Please cite\: \"Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support\"\n
+	Sophia (previously Sean) Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten\n
+	DOI: https\:\/\/doi\.org\/10\.1093\/sysbio\/syab060\n
+
+	Usage: perl tANI.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
+
+	IMPORTANT: tANI tool has a checkpointing system.
+	 If your run is interupted simply rerun your original command in the starting directory.
+
+	Required Inputs:
+	[id]: Percent identity cutoff for inclusion of BLAST hit in tANI calculation. Suggested: .7
+	[cv]: Percent coverage cutoff for inclusion of BLAST hit in tANI calculation. Suggested: .7
+
+	Optional Inputs:
+	[e]: Evalue cutoff for inclusion. Default: 1e-4
+	[task]: Setting BLAST uses for its search criteria (see -task in BLAST).
+	[boot]: Number of non-parametric tANI bootstraps. Default: 0\n\n";
 }
 
-#Check inputs.
-#Could this be more nicely done? Yes. Will I fix this later? Yes.
-
-if($identity){}
-else{
-	print "\nIdentity value not defined. Use standard (.7)? [Y|N]\n";
-	my $idencheck = <STDIN>;
-	chomp $idencheck;
-	if($idencheck eq "Y"){
-		$identity=.7;
-	}
-	else{
-		die "Need ID value to run. Stopping.\n";
-	}
+#check for required inputs
+if(@genomefiles == 0){
+	die "No input detected for query sequences. Whole genomes should be fasta formatted and have one of the following file extensions: fna, fasta, contig, contigs\n";
+}
+elsif($identity eq ""){
+	die "No input detected for percent identity cutoff.\n";
+}
+elsif($coverage eq ""){
+	die "No input detected for percent coverage cutoff.\n";
 }
 
-if($coverage){}
-else{
-	print "\nCoverage value not defined. Use standard (.7)? [Y|N]\n";
-	my $covcheck = <STDIN>;
-	chomp $covcheck;
-	if($covcheck eq "Y"){
-		$coverage=.7;
-	}
-	else{
-		die "Need CV value to run. Stopping.\n";
-	}
+#convert ID and CV to needed formats
+if($identity <= 1){
+	$identity=$identity*100;
 }
-
-if($bootnum){}
-else{
-	print "\nBoot value not defined, do you want to use standard (100)? [Y|N]\n";
-	my $bootcheck = <STDIN>;
-	chomp $bootcheck;
-	if($bootcheck eq "Y"){
-		$bootnum=100;
-	}
-	else{
-		die "Need bootstrap (BT) count. Stopping.\n";
-	}
+if($coverage > 1){
+	$coverage=$coverage/100;
 }
 
 #mainworkflow
