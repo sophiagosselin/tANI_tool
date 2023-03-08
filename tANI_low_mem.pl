@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 use warnings;
 use strict;
+use Thread::Semaphore;
 use threads;
 use threads::shared;
 use Getopt::Long;
@@ -12,17 +13,17 @@ my @input_genomes = glob "*.fna *.fasta *.contig *.contigs";
 my $evalue = "1E-4";
 my $task = "";
 my $bootnum = my $verbosity = 0;
-my ($identity_cutoff,$coverage_cutoff,$help);
+my ($identity_cutoff,$coverage_cutoff,$help,$thread_limit,$semaphore);
 #is shared for multithreading
 my (%matrix,%all_lengths,%bootmatrix):shared;
 
 #get_inputs
-GetOptions('v' =>\$verbosity, 'task' =>\$task, 'id=s' => \$identity_cutoff, 'ev=s' => \$evalue, 'cv=s' => \$coverage_cutoff, 'boot=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help);
+GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=s' => \$identity_cutoff, 'ev=s' => \$evalue, 'cv=s' => \$coverage_cutoff, 'boot=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help);
 
 #check for help call
 if($help==1){
 	die
-	"\ntANI tool v1.2 Updated from tANI_low_mem.pl\n
+	"\ntANI tool v1.2.1 Updated from tANI_low_mem.pl\n
 	Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.\n
 	Please cite\: \"Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support\"\n
 	Sophia Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten\n
@@ -49,23 +50,23 @@ if($help==1){
 	[e]: Evalue cutoff for inclusion. Default: 1e-4
 	[task]: Setting BLAST uses for its search criteria (see -task in BLAST).
 	[boot]: Number of non-parametric tANI bootstraps. Default: 0
-	[v]: Verbosity level. 1 for key checkpoints only. 2 for all messages. Default: 0\n";
+	[v]: Verbosity level. 1 for key checkpoints only. 2 for all messages. Default: 0
+	[t]: Thread count. Default will use half of available cores.\n";
 }
 
-&VERBOSEPRINT(1, "Initializing");
+&VERBOSEPRINT(1, "Initializing\n");
 
-my($fragment_counts_ref,$genome_length_ref) = SETUP(@input_genomes);
-my %test1 = %$test1;
-my %test2 = %$test2;
-MAIN(@input_genomes);
+my($fragment_counts_ref,$genome_length_ref,$split_genome_ref) = SETUP(@input_genomes);
+MAIN($fragment_counts_ref,$genome_length_ref,$split_genome_ref,@input_genomes);
 
 
 sub SETUP{
 	my @input_files = @_;
-	my(%fragment_counts,%genome_lengths);
+	my @split_genomes;
+
 	#check ID inputs
 	if($identity_cutoff = ""){
-		VERBOSEPRINT(1,"No identity threshold specified. Defaulting to 0.7")
+		VERBOSEPRINT(1,"No identity threshold specified. Defaulting to 0.7\n")
 		$identity_cutoff = 0.7;
 	}
 	else{
@@ -76,7 +77,7 @@ sub SETUP{
 
 	#check CV input
 	if($coverage_cutoff = ""){
-		VERBOSEPRINT(1,"No coverage threshold specified. Defaulting to 0.7")
+		VERBOSEPRINT(1,"No coverage threshold specified. Defaulting to 0.7\n")
 		$coverage_cutoff = 0.7;
 	}
 	else{
@@ -88,57 +89,57 @@ sub SETUP{
 	#check for directory presence, creates if not already
 	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/blast_output","intermediates/blastdb","Outputs","Outputs/AF","Outputs/Distance","Outputs/gANI""Outputs/jANI",)
 
-	foreach my $input_file (@input_files){
-			#prepare genome files for downstream use and check R/W privelages
-			FILE_I_O_CHECK($input_file);
-			STANDARDIZE_FASTA($input_file);
-
-			#split genomes into fragments. Return length and fragment count
-			my($input_genome_length,$input_fragment_count,$input_split)=SPLIT_FASTA($input_file);
-
-			#make BLAST database from fragment file
-			MAKE_BLAST_DATABASE($input_split,"intermediates/blastdb/$input_file");
-
-			#in case of crash, saves related genome information
-			BACKUP("$input_file\t$input_genome_length\t$input_fragment_count\n");
-		}
+	#finds core count if no thread limit was specified
+	if($thread_limit = ""){
+		$thread_limit = ((my $cores = CORE_COUNT())/2);
+		VERBOSEPRINT(1,"No thread limit specified. Using half ($thread_limit) of number of cores ($cores) as thread limit.\n");
 	}
-	return(\%fragment_counts,\%genome_lengths);
+	#sets up thread limit
+	$semaphore = Thread::Semaphore->new($thread_limit);
+
+	#check if backup logs exist. Load into memory if present.
+	my ($fragment_counts_hashref,$genome_lengths_hashref) = RECOVER_GENOME_INFORMATION("genome_information_backup.log");
+	my %fragment_counts = %{$fragment_counts_hashref};
+	my %genome_lengths = %{$genome_lengths_hashref};
+
+	foreach my $input_file (@input_files){
+		#checks if file has already been processed via backup subroutine
+		next if($fragment_counts{$input_file} && $genome_lengths{$input_file});
+		#prepare genome files for downstream use and check R/W privelages
+		FILE_I_O_CHECK($input_file);
+		STANDARDIZE_FASTA($input_file);
+
+		#split genomes into fragments. Return length and fragment count
+		my($input_genome_length,$input_fragment_count,$input_split)=SPLIT_FASTA($input_file);
+		push(@split_genomes,$input_split);
+
+		#make BLAST database from fragment file
+		MAKE_BLAST_DATABASE($input_split,"intermediates/blastdb/$input_file");
+
+		#in case of crash, saves related genome information
+		BACKUP_TO_FILE("$input_file\t$input_genome_length\t$input_fragment_count\n","genome_information_backup.log");
+
+		#for return
+		$fragment_counts{$input_file}=$input_fragment_count;
+		$genome_lengths{$input_file}=$input_genome_length;
+	}
+	return(\%fragment_counts,\%genome_lengths,\@split_genomes);
 }
 
 sub MAIN{
-	my %hash = %{$_[0]};
-	my %hash = %{$_[1]};
-	my @input_files = @[$_[2]];
-
-}
-
-#mainworkflow
-if (@input_genomes){
-	#splits genomes into fragmented files, and creates blast databases
-	#also creates a reference file for lengths. Acts as a checkpoint.
-	if(-e "intermediates/genome_lengths.txt"){
-		open (WGL, "< intermediates/genome_lengths.txt");
-		while(<WGL>){
-			my @split = split;
-			$all_lengths{$split[0]}=$split[1];
-		}
-		close WGL;
-	}
-	else{
-		threaded("SplitGenomes",\@input_genomes);
-		open (WGL, "+> intermediates/genome_lengths.txt");
-		foreach my $genome (sort keys %all_lengths){
-			print WGL "$genome\t$all_lengths{$genome}\n";
-		}
-		close WGL;
-	}
+	my %fragments_per_genome = %{shift};
+	my %lengths_of_genomes = %{shift};
+	my @split_genomes = @{shift};
+	my @input_files = @_;
 	#comprehensive all vs. all BLAST searches and database creation
-	threaded("BlastGenome",\@input_genomes);
+	#if this syntax works I will be gobsmacked
+	my(@blast_outputs) = @{(my($blast_outputs_reference)=THREAD_MANAGER("BlastGenome",\@split_genomes,\@input_files))};
+
+	#ANYTHING BELOW THIS POINT STILL DOES NOT WORK.
 	#Calculating distance, ANI, AF, and gANI
-	threaded("Calculate_ANI",\@input_genomes);
+	THREAD_MANAGER("Calculate_ANI",\@input_genomes);
 	#outs to file. Sends file type
-	Outfile("orig","orig",%matrix);
+	THREAD_MANAGER("orig","orig",%matrix);
 	#bootstrapping
 	for (my $bc=0; $bc<$bootnum; $bc++){
 		threaded("Bootstrap_ANI",\@input_genomes);
@@ -146,96 +147,42 @@ if (@input_genomes){
 		%bootmatrix=();
 	}
 }
-else{
-	print "\nNo genomes present in directory that are recognized.\n\nMake sure to use FASTA formatted files.\n\n";
-}
 
-sub threaded{
-	my ($sub,$arrayref) = @_;
-	my @refdarray = @{$arrayref};
+sub THREAD_MANAGER{
+	#takes a subroutine, the array of values to thread over and any values specific to subroutine as inputs
+	#creates new threads up to the thread limit
+	#returns an array of outputs
+	#IMPORTANT!!!!
+	#every sub called by this function must end with $semaphore->up;
+	my $subroutine = shift;
+	my @thread_input = @{shift};
+	my @sub_specific_arguments = @_;
 	my @threads;
-	foreach my $entry (@refdarray){
-		my $thread = threads ->create(\&$sub,$entry);
-		push @threads, $thread;
+	foreach my $threadable_input (@thread_input){
+		# request a thread slot, waiting if none are available:
+		$semaphore->down();
+		my ($thread) = threads->create(\&$subroutine,$threadable_input,@sub_specific_arguments);
+		push(@threads,$thread);
 	}
-	$_->join() for @threads;
-}
-
-sub SplitGenomes {
-	#splits genomes into 1020, and formats blastdb's
-	open (FILE_TO_SPLIT, "< $_[0]");
-	my ($annotation_counter,$wholegenome) = 0;
-	my (%printhash);
-	my ($annotation,$sequenceinput)="";
-	while(<FILE_TO_SPLIT>){
-		if ($_=~/\>/){
-			if($annotation_counter==0){
-				$annotation_counter++;
-			}
-			else{
-				my $contiglength = (length($sequenceinput));
-				my @cutcontig =($sequenceinput =~ /(.{1,1020})/g);
-				$wholegenome += $contiglength;
-				$sequenceinput = "";
-				foreach my $cuts (@cutcontig){
-					my $cutl=length($cuts);
-					next if $cutl < 100;
-					my $contigname = "$annotation"."\_$annotation_counter"."\_$contiglength"."\_$cutl";
-					$printhash{$contigname}=$cuts;
-					$annotation_counter++;
-				}
-			}
-			($annotation) = ($_=~/\>(.*?)[\n\s]/);
-			$annotation =~ s/\s//g;
-		}
-		else{
-			chomp $_;
-			$sequenceinput .= $_;
-		}
-	}
-	my @cutcontig =($sequenceinput =~ /(.{1,1020})/g);
-	my $contiglength = (length($sequenceinput));
-	$wholegenome += $contiglength;
-	$sequenceinput = "";
-	foreach my $cuts (@cutcontig){
-		my $cutl=length($cuts);
-		next if $cutl < 100;
-		my $contigname = "$annotation"."\_$annotation_counter"."\_$contiglength"."\_$cutl";
-		$printhash{$contigname}=$cuts;
-		$annotation_counter++;
-	}
-	close FILE_TO_SPLIT;
-	$all_lengths{$_[0]}=$wholegenome;
-	open (SPLIT, "+> intermediates/splits/$_[0].split");
-	foreach my $contigname (sort keys %printhash){
-		print SPLIT ">$contigname\n$printhash{$contigname}\n";
-	}
-	close SPLIT;
-	if (-e "intermediates/blastdb/$_[0].nhr"){
-	}
-	else{
-		system("makeblastdb -dbtype nucl -in $_[0] -input_type fasta -max_file_sz 2GB -out intermediates/blastdb/$_[0]");
-	}
+	my @return_values = $_->join() for @threads;
+	return(\@return_values);
 }
 
 sub BlastGenome {
-	#self explanitory
-	foreach my $database (@input_genomes){
-		if($database eq $_[0]){
-			next;
-		}
-		elsif (-e "intermediates/blast_output/$_[0]+$database.blast"){
-			if(-z "intermediates/blast_output/$_[0]+$database.blast"){
-				system("blastn -db intermediates/blastdb/$database -query intermediates/splits/$_[0].split -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$_[0]+$database.blast' $task");
-			}
-			else{
-				next;
-			}
-		}
-		else{
-			system("blastn -db intermediates/blastdb/$database -query intermediates/splits/$_[0].split -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$_[0]+$database.blast' $task");
-		}
+	#takes one genome, and an array of all genomes as input
+	#BLASTS the first genome against all other genomes. Returns list of BLAST output files
+	#NOTES: Needs a mechanism to backup and check if a search has already been completed.
+	my $query_genome = shift;
+	my @database_genomes = @{shift};
+	my ($query_file_handle) = ($query_genome=~/.*?\/(.*?)\..*/);
+	my @return_files;
+	foreach my $database (@database_genomes){
+		next if($database eq $query_genome);
+		my ($database_file_handle) = ($database=~/(.*?)\..*/);
+		system("blastn -db intermediates/blastdb/$database -query $query_genome -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$query_file_handle\_$database_file_handle\.blast' $task");
+		push(@return_files,"intermediates/blast_output/$query_file_handle\_$database_file_handle\.blast");
 	}
+	return(@return_files);
 }
 
 #All calculations are done here; name misleading
@@ -524,11 +471,35 @@ sub MAKE_BLAST_DATABASE{
 	system("makeblastdb -dbtype nucl -in $fastafile -out $output_location");
 }
 
-sub BACKUP{
-	#takes text as input
-	#prints text to backup.log
+sub BACKUP_TO_FILE{
+	#takes text and file names as input
+	#prints text to file
 	my $text_to_backup = shift;
-	open(BACKUP, ">> backup.log");
+	my $file_handle = shift;
+	open(BACKUP, ">> $file_handle");
 	print BACKUP "$text_to_backup";
 	close BACKUP;
+}
+
+sub RECOVER_GENOME_INFORMATION{
+	#recovers array values for searched and unsearched queries
+	VERBOSEPRINT(1, "Recovering from previous run.\n");
+	my $infile = shift;
+	my %length_backup;
+	my %fragment_backup;
+	open(BACKUP, "< $infile");
+	while(<BACKUP>){
+		chomp;
+		my @split_recover = split(/\t/,$_);
+		$length_backup{$split[0]}=$split[1];
+		$fragment_backup{$split[0]}=$split[2];
+	}
+	close BACKUP;
+	return(\%fragment_backup,\%length_backup);
+}
+
+sub CORE_COUNT{
+	use Sys::Info;
+	my $count = Sys::CPU::cpu_count;
+	return($count);
 }
