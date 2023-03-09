@@ -130,13 +130,28 @@ sub SETUP_CV_ID{
 sub MAIN{
 	my @split_genomes = @{shift};
 	my @input_files = @_;
+
 	#comprehensive all vs. all BLAST searches and database creation
-	#if this syntax works I will be gobsmacked
 	my(@blast_outputs) = @{(my($blast_outputs_reference)=THREAD_MANAGER("BLAST_GENOMES",\@split_genomes,\@input_files))};
 
-	#ANYTHING BELOW THIS POINT STILL DOES NOT WORK.
+	#clear memory
+	$blast_outputs_reference = "";
+
+	#load fragment lengths for all genomes into memory
+	my(@array_of_hashes) = @{(my($fragment_l_ref)=THREAD_MANAGER("GET_ACESSION_LENGTHS",\@split_genomes))};
+	my(%fragment_lengths)=MERGE_HASHES(@array_of_hashes):shared;
+
+	#load contig lengths for all genomes into memory
+	my(@array_of_hashes2) = @{(my($conting_l_ref)=THREAD_MANAGER("GET_ACESSION_LENGTHS",\@input_files))};
+	my(%contig_lengths)=MERGE_HASHES(@array_of_hashes2):shared;
+
+	#clear memory
+	(@array_of_hashes = @array_of_hashes2 = $fragment_l_ref = $conting_l_ref = ());
+
 	#Calculating distance, ANI, AF, and gANI
-	THREAD_MANAGER("Calculate_ANI",\@blast_outputs,\@input_genomes);
+	THREAD_MANAGER("CALCULATE_METRICS",\@blast_outputs);
+
+
 	#outs to file. Sends file type
 	THREAD_MANAGER("orig","orig",%matrix);
 	#bootstrapping
@@ -160,7 +175,7 @@ sub THREAD_MANAGER{
 	foreach my $threadable_input (@thread_input){
 		# request a thread slot, waiting if none are available:
 		$semaphore->down();
-		my ($thread) = threads->create(\&$subroutine,$threadable_input,@sub_specific_arguments);
+		my ($thread) = threads->create({'context' => 'list'}, \&$subroutine,$threadable_input,@sub_specific_arguments);
 		push(@threads,$thread);
 	}
 	my @return_values = $_->join() for @threads;
@@ -183,6 +198,32 @@ sub BLAST_GENOMES {
 	}
 	$semaphore->up;
 	return(@return_files);
+}
+
+sub GET_ACESSION_LENGTHS{
+	#takes a genome file as input
+	#returns list of acessions and their associated nucleotide length
+	my $input_file = shift;
+	my $nucl_length = 0;
+	my $acession ="";
+	my %nucl_lengths
+	open(IN, "< $input_file");
+	while(<IN>){
+		chomp;
+		if($_=~/\>/){
+			if(!$acession = ""){
+				$nucl_lengths{$acession}=$nucl_length;
+			}
+			$acession = $_;
+			$nucl_length = 0;
+		}
+		else{
+			$nucl_length += length($_);
+		}
+	}
+	$nucl_lengths{$acession}=$nucl_length;
+	close IN;
+	return(\%nucl_lengths);
 }
 
 sub CALCULATE_METRICS{
@@ -502,4 +543,13 @@ sub CORE_COUNT{
 	use Sys::Info;
 	my $count = Sys::CPU::cpu_count;
 	return($count);
+}
+
+sub MERGE_HASHES{
+	my @hashes_to_merge = @_;
+	my %new_hash;
+	foreach my $hashref (@hashes_to_merge){
+		$new_hash = {%$new_hash,%$hashref};
+	}
+	return(%new_hash);
 }
