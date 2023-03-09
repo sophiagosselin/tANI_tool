@@ -13,9 +13,9 @@ my @input_genomes = glob "*.fna *.fasta *.contig *.contigs";
 my $evalue = "1E-4";
 my $task = "";
 my $bootnum = my $verbosity = 0;
-my ($identity_cutoff,$coverage_cutoff,$help,$thread_limit,$semaphore);
+my ($identity_cutoff,$coverage_cutoff,$help,$thread_limit);
 #is shared for multithreading
-my (%matrix,%all_lengths,%bootmatrix):shared;
+my (%matrix,%all_lengths,%bootmatrix,$semaphore):shared;
 
 #get_inputs
 GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=s' => \$identity_cutoff, 'ev=s' => \$evalue, 'cv=s' => \$coverage_cutoff, 'boot=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help);
@@ -23,7 +23,7 @@ GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=
 #check for help call
 if($help==1){
 	die
-	"\ntANI tool v1.2.1 Updated from tANI_low_mem.pl\n
+	"\ntANI tool v1.2.4 Updated from tANI_low_mem.pl\n
 	Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.\n
 	Please cite\: \"Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support\"\n
 	Sophia Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten\n
@@ -32,6 +32,7 @@ if($help==1){
 	Input genomes should be placed in the directory you are executing this command from.
 	Only files with the extensions: fasta, fna, contig, or contigs, will be recognized.
 	Furthermore ensure these sequence files are in FASTA format.
+	The original input files can be found in intermediates/unchanged_inputs after initial setup is complete.
 
 	Please report any problems to the GitHub: https\:\/\/github.com\/sophiagosselin\/tANI_Matrix
 	OR to sophia.gosselin\@uconn.edu
@@ -56,38 +57,19 @@ if($help==1){
 
 &VERBOSEPRINT(1, "Initializing\n");
 
-my($fragment_counts_ref,$genome_length_ref,$split_genome_ref) = SETUP(@input_genomes);
-MAIN($fragment_counts_ref,$genome_length_ref,$split_genome_ref,@input_genomes);
+my($split_genome_ref) = SETUP(@input_genomes);
+MAIN($split_genome_ref,@input_genomes);
 
 
 sub SETUP{
 	my @input_files = @_;
-	my @split_genomes;
 
-	#check ID inputs
-	if($identity_cutoff = ""){
-		VERBOSEPRINT(1,"No identity threshold specified. Defaulting to 0.7\n")
-		$identity_cutoff = 0.7;
-	}
-	else{
-		if($identity_cutoff > 1){
-			$identity_cutoff=$identity_cutoff/100;
-		}
-	}
-
-	#check CV input
-	if($coverage_cutoff = ""){
-		VERBOSEPRINT(1,"No coverage threshold specified. Defaulting to 0.7\n")
-		$coverage_cutoff = 0.7;
-	}
-	else{
-		if($coverage_cutoff > 1){
-			$coverage_cutoff=$coverage_cutoff/100;
-		}
-	}
+	#check ID and CV inputs, reformat if needed.
+	$identity_cutoff = SETUP_CV_ID($identity_cutoff,"No identity threshold specified. Defaulting to 0.7\n");
+	$coverage_cutoff = SETUP_CV_ID($coverage_cutoff,"No coverage threshold specified. Defaulting to 0.7\n")
 
 	#check for directory presence, creates if not already
-	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/blast_output","intermediates/blastdb","Outputs","Outputs/AF","Outputs/Distance","Outputs/gANI""Outputs/jANI",)
+	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/blast_output","intermediates/unchanged_inputs","intermediates/blastdb","Outputs","Outputs/AF","Outputs/Distance","Outputs/gANI""Outputs/jANI",)
 
 	#finds core count if no thread limit was specified
 	if($thread_limit = ""){
@@ -98,46 +80,63 @@ sub SETUP{
 	$semaphore = Thread::Semaphore->new($thread_limit);
 
 	#check if backup logs exist. Load into memory if present.
-	my ($fragment_counts_hashref,$genome_lengths_hashref) = RECOVER_GENOME_INFORMATION("genome_information_backup.log");
-	my %fragment_counts = %{$fragment_counts_hashref};
-	my %genome_lengths = %{$genome_lengths_hashref};
+	my($split_genome_backup_ref) = RECOVER_SETUP_INFORMATION("setup.log");
+	my(@split_genomes_backup) = @{$split_genome_backup_ref}:shared;
 
-	foreach my $input_file (@input_files){
-		#checks if file has already been processed via backup subroutine
-		next if($fragment_counts{$input_file} && $genome_lengths{$input_file});
-		#prepare genome files for downstream use and check R/W privelages
-		FILE_I_O_CHECK($input_file);
-		STANDARDIZE_FASTA($input_file);
+	#sends input files to be prepared with the setup genomes subroutine. Reutns array of fragmented genomes
+	my(@split_genomes) = @{(my($split_genome_ref)=THREAD_MANAGER("SETUP_GENOME", \@input_files))};
+	push(@split_genomes,@split_genomes_backup);
 
-		#split genomes into fragments. Return length and fragment count
-		my($input_genome_length,$input_fragment_count,$input_split)=SPLIT_FASTA($input_file);
-		push(@split_genomes,$input_split);
+	return(\@split_genomes);
+}
 
-		#make BLAST database from fragment file
-		MAKE_BLAST_DATABASE($input_split,"intermediates/blastdb/$input_file");
+sub SETUP_GENOME{
+	#takes 1 genome, 2 hashes as inputs
+	my $input_file = shift;
+	#checks if file has already been processed via backup subroutine
+	next if($split_genomes_backup{$input_file});
+	#prepare genome files for downstream use and check R/W privelages
+	FILE_I_O_CHECK($input_file);
+	STANDARDIZE_FASTA($input_file);
 
-		#in case of crash, saves related genome information
-		BACKUP_TO_FILE("$input_file\t$input_genome_length\t$input_fragment_count\n","genome_information_backup.log");
+	#split genomes into fragments. Return length and fragment count
+	my($input_split)=SPLIT_FASTA($input_file);
 
-		#for return
-		$fragment_counts{$input_file}=$input_fragment_count;
-		$genome_lengths{$input_file}=$input_genome_length;
+	#make BLAST database from input file
+	MAKE_BLAST_DATABASE($input_file,"intermediates/blastdb/$input_file");
+
+	#in case of crash, saves related genome information
+	BACKUP_TO_FILE("$input_file\n","setup.log");
+
+	#for return
+	return($input_split);
+}
+
+sub SETUP_CV_ID{
+	my $variable = shift;
+	my $error_message = shift;
+	if($variable = ""){
+		VERBOSEPRINT(1,$error_message);
+		$variable = 0.7;
 	}
-	return(\%fragment_counts,\%genome_lengths,\@split_genomes);
+	else{
+		if($variable > 1){
+			$variable=$variable/100;
+		}
+	}
+	return($variable);
 }
 
 sub MAIN{
-	my %fragments_per_genome = %{shift};
-	my %lengths_of_genomes = %{shift};
 	my @split_genomes = @{shift};
 	my @input_files = @_;
 	#comprehensive all vs. all BLAST searches and database creation
 	#if this syntax works I will be gobsmacked
-	my(@blast_outputs) = @{(my($blast_outputs_reference)=THREAD_MANAGER("BlastGenome",\@split_genomes,\@input_files))};
+	my(@blast_outputs) = @{(my($blast_outputs_reference)=THREAD_MANAGER("BLAST_GENOMES",\@split_genomes,\@input_files))};
 
 	#ANYTHING BELOW THIS POINT STILL DOES NOT WORK.
 	#Calculating distance, ANI, AF, and gANI
-	THREAD_MANAGER("Calculate_ANI",\@input_genomes);
+	THREAD_MANAGER("Calculate_ANI",\@blast_outputs,\@input_genomes);
 	#outs to file. Sends file type
 	THREAD_MANAGER("orig","orig",%matrix);
 	#bootstrapping
@@ -168,7 +167,7 @@ sub THREAD_MANAGER{
 	return(\@return_values);
 }
 
-sub BlastGenome {
+sub BLAST_GENOMES {
 	#takes one genome, and an array of all genomes as input
 	#BLASTS the first genome against all other genomes. Returns list of BLAST output files
 	#NOTES: Needs a mechanism to backup and check if a search has already been completed.
@@ -179,10 +178,15 @@ sub BlastGenome {
 	foreach my $database (@database_genomes){
 		next if($database eq $query_genome);
 		my ($database_file_handle) = ($database=~/(.*?)\..*/);
-		system("blastn -db intermediates/blastdb/$database -query $query_genome -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$query_file_handle\_$database_file_handle\.blast' $task");
+		system("blastn -db intermediates/blastdb/$database -query $query_genome -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast' $task");
 		push(@return_files,"intermediates/blast_output/$query_file_handle\_$database_file_handle\.blast");
 	}
+	$semaphore->up;
 	return(@return_files);
+}
+
+sub CALCULATE_METRICS{
+
 }
 
 #All calculations are done here; name misleading
@@ -407,15 +411,17 @@ sub VERBOSEPRINT{
 }
 
 sub STANDARDIZE_FASTA {
-	#removes most unique characters from annotation lines
+	#removes most unique characters from annotation lines and simplifies the line
 	#makes later searches and moving of files much easier.
+	#additionally moves original file into a directory while leaving changed file behind
 	my $fastafile = shift;
 	open(IN, "< $fastafile");
+	my ($annotation) = ($fastafile=~/(.*?)\..*/);
+	$annotation=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
 	open(OUT, "+> temp.fasta");
 	while(<IN>){
 		if($_=~/\>/){
-			$_=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
-			print OUT $_;
+			print OUT "\>$annotation\n";
 		}
 		else{
 			print OUT $_;
@@ -423,16 +429,16 @@ sub STANDARDIZE_FASTA {
 	}
 	close IN;
 	close OUT;
-	unlink $fastafile;
+	move($fastafile,"intermediates/unchanged_inputs/");
 	rename "temp.fasta", $fastafile;
 }
 
 sub SPLIT_FASTA{
 	#splits input genome into  seperately annotated 1020nt long fragments
-	#prints these fragments to a new file
-	#returns total length of genome (sans any tiny fragments that were filtered outs) and fragment count
+	#prints these fragments to a new file and returns that file name
 	my $fastafile = shift;
-	my $genome_length = my $fragment_count = 0;
+	my $fragment_count = 0;
+	my($fragment_asc) = ($fastafile=~/(.*?)\..*/);
 	open(IN, "< $fastafile");
 	open(OUT, "+> intermediates/splits/$fastafile.split")
 	while(<IN>){
@@ -441,16 +447,13 @@ sub SPLIT_FASTA{
 			next;
 		}
 		else{
-			my $sublength = length($_);
 			my @sequence_fragments = ($_ =~ /(.{1,1020})/g);
 
 			#remove any fragment under 100nt in size (field standard)
-			if($sequence_fragments[$#sequence_fragments] < 100){
-				my $lost_length = pop(@sequence_fragments);
-				$sublength-= $lost_length;
+			if($sequence_fragments[$sequence_fragments] < 100){
+				pop(@sequence_fragments);
 			}
 
-			$genome_length+= $sublength;
 			foreach my $fragment (@sequence_fragments){
 				print OUT ">$fragment_asc\n$fragment\n";
 				$fragment_count++;
@@ -460,7 +463,7 @@ sub SPLIT_FASTA{
 	}
 	close IN;
 	close OUT;
-	return($genome_length,$fragment_count);
+	return("intermediates/splits/$fastafile.split");
 }
 
 sub MAKE_BLAST_DATABASE{
@@ -481,21 +484,18 @@ sub BACKUP_TO_FILE{
 	close BACKUP;
 }
 
-sub RECOVER_GENOME_INFORMATION{
+sub RECOVER_SETUP_INFORMATION{
 	#recovers array values for searched and unsearched queries
-	VERBOSEPRINT(1, "Recovering from previous run.\n");
+	VERBOSEPRINT(1, "Recovering setup data from previous run.\n");
 	my $infile = shift;
-	my %length_backup;
-	my %fragment_backup;
+	my @genome_setup_backup;
 	open(BACKUP, "< $infile");
 	while(<BACKUP>){
 		chomp;
-		my @split_recover = split(/\t/,$_);
-		$length_backup{$split[0]}=$split[1];
-		$fragment_backup{$split[0]}=$split[2];
+		push(@genome_setup_backup,$_);
 	}
 	close BACKUP;
-	return(\%fragment_backup,\%length_backup);
+	return(\@genome_setup_backup);
 }
 
 sub CORE_COUNT{
