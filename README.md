@@ -1,7 +1,11 @@
 # tANI_Matrix
+
+## As of 03/14/2023 please use low_mem_v1 as the current low_mem version is undergoing a rewrite. This readme will be updated once the redone version is completed and cleared for use.
+
 These perl scripts allow one to reconstruct the results of https://doi.org/10.1101/2020.01.15.908137.
 
-I would suggest that you use the newer Low Mem version which has a number of imporvements. Prinicpally, it decreases the amount of memory needed to run and provides more user friendly directory structures. This will increase the storage space needed while running an analysis, but not by much. Additionally the low-mem version provides additional checkpointing processes to help reduce loss of time due to outside factors.
+I would suggest that you use low_mem which has a number of imporvements. Prinicpally, it decreases the amount of memory needed to run and provides more user friendly directory structures. This will increase the storage space needed while running an analysis, but not by much. Additionally the low-mem version provides additional checkpointing processes to help reduce loss of time due to outside factors.
+
 
 You will need to have the latest version of blast+ installed.* Additionally you will need a version of Perl that supports Perl threads. 
 
