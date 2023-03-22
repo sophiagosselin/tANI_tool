@@ -23,7 +23,7 @@ GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=
 #check for help call
 if($help==1){
 	die
-	"\ntANI tool v1.2.4 Updated from tANI_low_mem.pl\n
+	"\ntANI tool v1.2.5 Updated from tANI_low_mem.pl\n
 	Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.\n
 	Please cite\: \"Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support\"\n
 	Sophia Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten\n
@@ -119,7 +119,7 @@ sub SETUP_GENOME{
 	MAKE_BLAST_DATABASE($input_file,"intermediates/blastdb/$input_file");
 
 	#in case of crash, saves related genome information
-	BACKUP_TO_FILE("$input_file\t$genome_length\n","setup.log");
+	PRINT_TO_FILE("$input_file\t$genome_length\n","setup.log");
 
 	#for return
 	return(\%return_info);
@@ -168,12 +168,16 @@ sub MAIN{
 	(@array_of_hashes = @array_of_hashes2 = $fragment_l_ref = $conting_l_ref = ());
 
 	#Calculating distance, ANI, AF, and gANI
-	my(@calculations)=@{(my($calc_referejce)=THREAD_MANAGER("CALCULATE_METRICS",\@blast_outputs))};
+	my(@calculations)=@{(my($calc_reference)=THREAD_MANAGER("CALCULATE_METRICS",\@blast_outputs))};
 
-	#NOTHING WORKS FROM HERE ON YET.
-	#outs to file. Sends file type
-	THREAD_MANAGER("orig","orig",%matrix);
-	#bootstrapping
+	#clear memory
+	($calc_reference)=();
+
+	#send calculations to output files
+	OUTPUT("original",\@calculations,\@input_files);
+
+	#if bootstrapping is needed, begin here
+
 	for (my $bc=0; $bc<$bootnum; $bc++){
 		threaded("Bootstrap_ANI",\@input_genomes);
 		Outfile($bc,"matrix",%bootmatrix);
@@ -279,7 +283,7 @@ sub CALCULATE_METRICS{
 		$gANI_numerator += ($blast_results[3]*($blast_results[2]/100));
 		$gANI_denominator += $shorter_gene;
 		$jANI_numerator += $Blast_Lines[2];
-		BACKUP_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\n","intermediates/calc_backup/$blast_input.log");
+		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\n","intermediates/calc_backup/$blast_input.log");
 	}
 	close IN;
 
@@ -289,10 +293,13 @@ sub CALCULATE_METRICS{
 	my $gANI = ($gANI_numerator/$gANI_denominator);
 	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
 	my $tANI = -log($gANINumerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
+
+	#return calculations with the following format:
+	#Query_Genome&Database_Genome	jANI	gANI	AF	tANI
 	my $return_info = "$query_handle\&$database_handle\t$jANI\t$gANI\t$AF\t$tANI";
 
 	#for backup
-	BACKUP_TO_FILE("$return_info\n","original_calculations.log");
+	PRINT_TO_FILE("$return_info\n","original_calculations.log");
 
 	return($return_info);
 }
@@ -377,47 +384,70 @@ sub Bootstrap_ANI{
 	}
 }
 
-sub Outfile{
-	#number or indicator to go after the _ but before file extension.
-	my $u1 = shift;
-	#file extension
-	my $u2 = shift;
-	#content of the matrices
-	my %toprint = @_;
-	#checker tool
-	my $currentline = "hi";
-	my %handles;
-	my @outfiles = ("Outputs/jANI/jANI","Outputs/gANI/gANI","Outputs/AF/AF","Outputs/Distance/Distance");
-	foreach my $out1 (@outfiles){
-		open (my $fh, "+>", "$out1\_$u1\.$u2");
-		print {$fh} join("\t",sort @input_genomes);
-		#try a print join approach when you have time
-		$handles{$out1}=$fh;
+sub OUTPUT{
+	#takes an inidcator string to append to the end of file names before the extension
+	#and an array of the four calculations to print out (jANI,gANI,AF,tANI).
+	#each entry of the array must be formated as: Query_Genome&Database_Genome	jANI	gANI	AF	tANI
+	#prints results to files.
+	my $string_to_append = shift;
+	my @unhashed_information = @{shift};
+	my @file_names = @{shift};
+	my (%jANI,%gANI,%AF,%tANI,@names);
+
+	#prep data for printing
+	foreach my $entry (@unhashed_information){
+		my @split = split(/\t/,@_);
+		$jANI{$split[0]}=$split[1];
+		$gANI{$split[0]}=$split[2];
+		$AF{$split[0]}=$split[3];
+		$tANI{$split[0]}=$split[4];
 	}
-	foreach my $value (sort keys %toprint){
-		my ($check) = ($value =~ /(.*?)\+.*/);
-		if ($check eq $currentline){
-			my $num = 0;
-			my @outputs = split(/	/,$toprint{$value});
-			foreach my $out (@outfiles){
-				print {$handles{$out}} "\t$outputs[$num]";
-				$num++;
-			}
-		}
-		else{
-			$currentline = $check;
-			my $num = 0;
-			my @outputs = split(/	/,$toprint{$value});
-			foreach my $out (@outfiles){
-				print {$handles{$out}} "\n$check\t$outputs[$num]";
-				$num++;
-			}
-		}
+	foreach my $entry (@file_names){
+		my($genome_name)=($entry=~/(.*?)\..*/);
+		push(@names,$genome_name);
 	}
-	foreach my $out2 (@outfiles){
-		close $handles{$out2};
-	}
+	#clear memory
+	(@unhashed_information = @file_names =());
+
+	#create matrices for printing
+	my($jANI_matrix)=MATRIX_FROM_HASH(\%jANI,@names);
+	my($gANI_matrix)=MATRIX_FROM_HASH(\%gANI,@names);
+	my($AF_matrix)=MATRIX_FROM_HASH(\%AF,@names);
+	my($tANI_matrix)=MATRIX_FROM_HASH(\%tANI,@names);
+
+	#print matrices to file
+	PRINT_TO_FILE($jANI_matrix,"jANI_$string_to_append.matrix");
+	PRINT_TO_FILE($gANI_matrix,"gANI_$string_to_append.matrix");
+	PRINT_TO_FILE($AF_matrix,"AF_$string_to_append.matrix");
+	PRINT_TO_FILE($tANI_matrix,"tANI_$string_to_append.matrix");
 }
+
+sub MATRIX_FROM_HASH{
+	#takes hash of data to convert into a 2D matrix, as well as an array of headers
+	#returns the 2D matrix as a string
+	my $hashref = shift;
+	my %matrix_data = %{$hashref};
+	my @matrix_header = @_;
+	my $matrix_string ="";
+
+	#create matrix header
+	foreach my $header (sort @matrix_header){
+		$matrix_string.="$header\t";
+	}
+
+	#convert hash to matrix
+	my $current_query_name = "";
+	foreach my $entry (sort keys %matrix_data){
+		my($query_name)=($entry=~/(.*?)\&.*/);
+		if(!$query_name eq $current_query_name){
+			$matrix_string.="\n$query_name\t";
+			$current_query_name = $query_name;
+		}
+		$matrix_string.="$matrix_data{$entry}\t";
+	}
+	return($matrix_string);
+}
+
 
 sub DIRECTORY_CHECK{
 	#checks if directories exists. If not, the sub creates it.
@@ -517,13 +547,13 @@ sub MAKE_BLAST_DATABASE{
 	system("makeblastdb -dbtype nucl -in $fastafile -out $output_location");
 }
 
-sub BACKUP_TO_FILE{
+sub PRINT_TO_FILE{
 	#takes text and file names as input
 	#prints text to file
-	my $text_to_backup = shift;
+	my $text_to_print = shift;
 	my $file_handle = shift;
 	open(BACKUP, ">> $file_handle");
-	print BACKUP "$text_to_backup";
+	print BACKUP "$text_to_print";
 	close BACKUP;
 }
 
