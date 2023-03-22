@@ -55,8 +55,7 @@ if($help==1){
 	[t]: Thread count. Default will use half of available cores.\n";
 }
 
-&VERBOSEPRINT(1, "Initializing\n");
-
+VERBOSEPRINT(1, "Initializing\n");
 my($split_genome_ref) = SETUP(@input_genomes);
 MAIN($split_genome_ref,@input_genomes);
 
@@ -143,7 +142,7 @@ sub SETUP_CV_ID{
 sub MAIN{
 	my %split_genomes_and_lengths = %{shift}:shared;
 	my @input_files = @_;
-	my @split_genomes;
+	my (@split_genomes,@names_for_output);
 
 	#creates input array from hash
 	foreach my $input (keys %split_genomes_and_lengths){
@@ -173,15 +172,29 @@ sub MAIN{
 	#clear memory
 	($calc_reference)=();
 
+	#creates array of genome names without file extensions
+	#and pushes result for self v self comp to @calculations for output
+	foreach my $entry (@input_files){
+		my($genome_name)=($entry=~/(.*?)\..*/);
+		push(@names_for_output,$genome_name);
+		push(@calculations,"$genome_name\&$genome_name\t0\t0\t0\t13");
+	}
+
 	#send calculations to output files
-	OUTPUT("original",\@calculations,\@input_files);
+	OUTPUT("original",\@calculations,\@names_for_output);
 
 	#if bootstrapping is needed, begin here
-
-	for (my $bc=0; $bc<$bootnum; $bc++){
-		threaded("Bootstrap_ANI",\@input_genomes);
-		Outfile($bc,"matrix",%bootmatrix);
-		%bootmatrix=();
+	if($bootnum eq 0){
+		VERBOSEPRINT(0,"No bootstraped matrices requested. Terminating run.\n");
+		return();
+	}
+	else{
+		my @best_hit_logs = glob "intermediates/calc_backup/*.log";
+		for (my $boot_counter=0; $boot_counter<$bootnum; $boot_counter++){
+			my(@bootstrap_calculations)=@{(my $calc_reference)=THREAD_MANAGER("BOOTSTRAP",\@best_hit_logs))};
+			#need to add a method for pushing self-self to array
+			OUTPUT($boot_counter,\@bootstrap_calculations,\@names_for_output);
+		}
 	}
 }
 
@@ -283,6 +296,7 @@ sub CALCULATE_METRICS{
 		$gANI_numerator += ($blast_results[3]*($blast_results[2]/100));
 		$gANI_denominator += $shorter_gene;
 		$jANI_numerator += $Blast_Lines[2];
+		#backs up best hits for bootstrapping
 		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\n","intermediates/calc_backup/$blast_input.log");
 	}
 	close IN;
@@ -304,94 +318,41 @@ sub CALCULATE_METRICS{
 	return($return_info);
 }
 
-sub Bootstrap_ANI{
-	#readin query information
-	open(SPLIT, "< intermediates/splits/$_[0].split");
-	my(%qsplitsize,%randomsample,$bootsize);
-	my $counter = 0;
-	while(<SPLIT>){
-		if($_=~/\>/){
-			my($annotation,$splitsize)=($_=~/\>(.*\_.*?\_.*?\_(.*))/);
-			$qsplitsize{$annotation}=$splitsize;
-			$counter++;
-		}
-		else{}
+sub BOOTSTRAP{
+	#takes a best hit log file as input
+	#choses at random with replacement a set of best hits (it does a non-parametric bootstrap)
+	#returns the bootstrapped metrics
+	my $best_hits_file = shift;
+	my (%best_hits,%random_sample);
+
+	#reads in log, gets number of best hits, and data
+	open(IN, "< $best_hits_file");
+	while(<IN>){
+		my @best_hit_data = split(/\t/,@_);
+		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_bits_data[2]";
 	}
-	close SPLIT;
-	my @q_keys = keys %qsplitsize;
-	for(my $rngcount=0; $rngcount<$counter; $rngcount++){
-		$randomsample{$rngcount} = $q_keys[rand @q_keys];
+
+	#takes a random sample with replacement of best hits
+	my @best_hits_query_names = keys %best_hits;
+	my $number_of_hits = keys %best_hits;
+	for(my $rng_counter=0; $rng_counter<$number_of_hits; $rng_counter++){
+		$random_sample{$rng_counter} = $best_hits_query_names[rand @best_hits_query_names];
 	}
-	foreach my $database (@input_genomes){
-		if($database eq $_[0]){
-			$bootmatrix{"$_[0]\+$_[0]"} = "1.0\t1.0\t1.0\t0.0";
-			next;
-		}
-		else{}
-		#readin database information
-		open(DB, "< intermediates/splits/$database.split");
-		my(%dbsplitsize,%dbcontigsize);
-		while(<DB>){
-			if($_=~/\>/){
-				my($annotation,$consize)=($_=~/\>(.*)\_.*?\_(.*?)\_.*/);
-				next if exists $dbcontigsize{$annotation};
-				$dbcontigsize{$annotation}=$consize;
-			}
-			else{}
-		}
-		close DB;
-		#start filtering BLAST output
-		my(%BestHits,$gANINumerator,$TotalShort,$TotalID,$shortergene);
-		my $HitCounter = 0;
-		open(BLAST_FILE, "< intermediates/blast_output/$_[0]+$database.blast");
-		while(<BLAST_FILE>){
-			my @Blast_Lines = split;
-			next if exists $BestHits{$Blast_Lines[0]};
-			next if $Blast_Lines[2] < $identity_cutoff;
-			if ($dbcontigsize{$Blast_Lines[1]} <= $qsplitsize{$Blast_Lines[0]}){
-				$shortergene = $dbcontigsize{$Blast_Lines[1]};
-			}
-			else{
-				$shortergene = $qsplitsize{$Blast_Lines[0]};
-			}
-			next if ($shortergene == 0);
-			next if (($Blast_Lines[3]/$shortergene) < $coverage_cutoff);
-			my $gANIindv = ($Blast_Lines[3]*($Blast_Lines[2]/100));
-			$BestHits{$Blast_Lines[0]} = "$gANIindv\t$Blast_Lines[2]\t$shortergene";
-		}
-		close BLAST_FILE;
-		foreach my $sample (values %randomsample){
-			if(exists $BestHits{$sample}){
-				my @split = split(/	/,$BestHits{$sample});
-				$gANINumerator += $split[0];
-				$TotalShort += $split[2];
-				$HitCounter++;
-				$TotalID += $split[1];
-			}
-			else{
-			}
-		}
-		if($HitCounter == 0){
-			$bootmatrix{"$_[0]\+$database"} = "0.00\t0.00\t0.00\t13.00";
-		}
-		else{
-			my $jANI = ($TotalID/$HitCounter);
-			my $gANI = ($gANINumerator/$TotalShort);
-			my $AF = ($TotalShort/$all_lengths{$_[0]});
-			my $gDistance = -log($gANINumerator/$all_lengths{$_[0]});
-			$bootmatrix{"$_[0]\+$database"} = "$jANI\t$gANI\t$AF\t$gDistance";
-		}
-	}
+
+	#calculates metrics from the random sample
+	
+
 }
 
 sub OUTPUT{
 	#takes an inidcator string to append to the end of file names before the extension
 	#and an array of the four calculations to print out (jANI,gANI,AF,tANI).
 	#each entry of the array must be formated as: Query_Genome&Database_Genome	jANI	gANI	AF	tANI
-	#prints results to files.
+	#and an array of headers
+	#prints resulting matrices to files.
 	my $string_to_append = shift;
 	my @unhashed_information = @{shift};
-	my @file_names = @{shift};
+	my @names = @{shift};
 	my (%jANI,%gANI,%AF,%tANI,@names);
 
 	#prep data for printing
@@ -402,12 +363,8 @@ sub OUTPUT{
 		$AF{$split[0]}=$split[3];
 		$tANI{$split[0]}=$split[4];
 	}
-	foreach my $entry (@file_names){
-		my($genome_name)=($entry=~/(.*?)\..*/);
-		push(@names,$genome_name);
-	}
 	#clear memory
-	(@unhashed_information = @file_names =());
+	@unhashed_information=();
 
 	#create matrices for printing
 	my($jANI_matrix)=MATRIX_FROM_HASH(\%jANI,@names);
