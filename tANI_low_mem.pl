@@ -297,7 +297,7 @@ sub CALCULATE_METRICS{
 		$gANI_denominator += $shorter_gene;
 		$jANI_numerator += $Blast_Lines[2];
 		#backs up best hits for bootstrapping
-		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\n","intermediates/calc_backup/$blast_input.log");
+		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$blast_input.log");
 	}
 	close IN;
 
@@ -324,12 +324,14 @@ sub BOOTSTRAP{
 	#returns the bootstrapped metrics
 	my $best_hits_file = shift;
 	my (%best_hits,%random_sample);
+	my $gANI_numerator = my $gANI_denominator = my $jANI_numerator = 0;
 
 	#reads in log, gets number of best hits, and data
 	open(IN, "< $best_hits_file");
 	while(<IN>){
+		chomp;
 		my @best_hit_data = split(/\t/,@_);
-		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_bits_data[2]";
+		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_bits_data[2]\t$best_hits_data[3]";
 	}
 
 	#takes a random sample with replacement of best hits
@@ -340,8 +342,21 @@ sub BOOTSTRAP{
 	}
 
 	#calculates metrics from the random sample
-	
+	foreach my $r_sample (%random_sample){
+		my @random_sample_data = split(/\t/,@_);
+		$gANI_numerator += ($random_sample_data[1]*($random_sample_data[0]/100));
+		$gANI_denominator += $random_sample_data[2];
+		$jANI_numerator += $random_sample_data[0];
+	}
 
+	my $jANI = ($jANI_numerator/$number_of_hits);
+	my $gANI = ($gANI_numerator/$gANI_denominator);
+	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
+	my $tANI = -log($gANINumerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
+
+	my $return_info = "$query_handle\&$database_handle\t$jANI\t$gANI\t$AF\t$tANI";
+
+	return($return_info);
 }
 
 sub OUTPUT{
