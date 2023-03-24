@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 use warnings;
 use strict;
-use Thread::Semaphore;
 use threads;
 use threads::shared;
+use Thread::Semaphore;
 use Getopt::Long;
 use Scalar::Util;
 use File::Copy;
@@ -65,13 +65,13 @@ sub SETUP{
 
 	#check ID and CV inputs, reformat if needed.
 	$identity_cutoff = SETUP_CV_ID($identity_cutoff,"No identity threshold specified. Defaulting to 0.7\n");
-	$coverage_cutoff = SETUP_CV_ID($coverage_cutoff,"No coverage threshold specified. Defaulting to 0.7\n")
+	$coverage_cutoff = SETUP_CV_ID($coverage_cutoff,"No coverage threshold specified. Defaulting to 0.7\n");
 
 	#check for directory presence, creates if not already
-	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/calc_backup","intermediates/blast_output","intermediates/unchanged_inputs","intermediates/blastdb","Outputs","Outputs/AF","Outputs/Distance","Outputs/gANI""Outputs/jANI",)
+	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/calc_backup","intermediates/blast_output","intermediates/unchanged_inputs","intermediates/blastdb","Outputs","Outputs/AF","Outputs/Distance","Outputs/gANI","Outputs/jANI");
 
 	#finds core count if no thread limit was specified
-	if($thread_limit = ""){
+	if($thread_limit eq ""){
 		$thread_limit = ((my $cores = CORE_COUNT())/2);
 		VERBOSEPRINT(1,"No thread limit specified. Using half ($thread_limit) of number of cores ($cores) as thread limit.\n");
 	}
@@ -104,8 +104,6 @@ sub SETUP_GENOME{
 	#takes 1 genome as input. Returns split genome location and whole genome length as hash
 	my $input_file = shift;
 	my %return_info;
-	#checks if file has already been processed via backup subroutine
-	next if($split_genomes_backup{$input_file});
 	#prepare genome files for downstream use and check R/W privelages
 	FILE_I_O_CHECK($input_file);
 	STANDARDIZE_FASTA($input_file);
@@ -127,7 +125,7 @@ sub SETUP_GENOME{
 sub SETUP_CV_ID{
 	my $variable = shift;
 	my $error_message = shift;
-	if($variable = ""){
+	if($variable eq ""){
 		VERBOSEPRINT(1,$error_message);
 		$variable = 0.7;
 	}
@@ -140,7 +138,7 @@ sub SETUP_CV_ID{
 }
 
 sub MAIN{
-	my %split_genomes_and_lengths = %{shift}:shared;
+	my %split_genomes_and_lengths = %{(my $hash_ref = shift)}:shared;
 	my @input_files = @_;
 	my (@split_genomes,@names_for_output);
 
@@ -164,13 +162,10 @@ sub MAIN{
 	my(%contig_lengths)=MERGE_HASHES(@array_of_hashes2):shared;
 
 	#clear memory
-	(@array_of_hashes = @array_of_hashes2 = $fragment_l_ref = $conting_l_ref = ());
+	(@array_of_hashes = @array_of_hashes2 = ());
 
 	#Calculating distance, ANI, AF, and gANI
 	my(@calculations)=@{(my($calc_reference)=THREAD_MANAGER("CALCULATE_METRICS",\@blast_outputs))};
-
-	#clear memory
-	($calc_reference)=();
 
 	#creates array of genome names without file extensions
 	#and pushes result for self v self comp to @calculations for output
@@ -191,7 +186,7 @@ sub MAIN{
 	else{
 		my @best_hit_logs = glob "intermediates/calc_backup/*.log";
 		for (my $boot_counter=0; $boot_counter<$bootnum; $boot_counter++){
-			my(@bootstrap_calculations)=@{(my $calc_reference)=THREAD_MANAGER("BOOTSTRAP",\@best_hit_logs))};
+			my(@bootstrap_calculations)=@{((my $calc_reference)=THREAD_MANAGER("BOOTSTRAP",\@best_hit_logs))};
 			#need to add a method for pushing self-self to array
 			OUTPUT($boot_counter,\@bootstrap_calculations,\@names_for_output);
 		}
@@ -205,7 +200,7 @@ sub THREAD_MANAGER{
 	#IMPORTANT!!!!
 	#every sub called by this function must end with $semaphore->up;
 	my $subroutine = shift;
-	my @thread_input = @{shift};
+	my @thread_input = @{(my $array_ref = shift)};
 	my @sub_specific_arguments = @_;
 	my @threads;
 	foreach my $threadable_input (@thread_input){
@@ -223,7 +218,7 @@ sub BLAST_GENOMES {
 	#BLASTS the first genome against all other genomes. Returns list of BLAST output files
 	#NOTES: Needs a mechanism to backup and check if a search has already been completed.
 	my $query_genome = shift;
-	my @database_genomes = @{shift};
+	my @database_genomes = @{(my $array_ref = shift)};
 	my ($query_file_handle) = ($query_genome=~/.*?\/(.*?)\..*/);
 	my @return_files;
 	foreach my $database (@database_genomes){
@@ -240,24 +235,24 @@ sub GET_ACESSION_LENGTHS{
 	#takes a genome file as input
 	#returns list of acessions and their associated nucleotide length
 	my $input_file = shift;
-	my $nucl_length = 0;
+	my $dna_length = 0;
 	my $acession ="";
-	my %nucl_lengths
+	my %nucl_lengths;
 	open(IN, "< $input_file");
 	while(<IN>){
 		chomp;
 		if($_=~/\>/){
-			if(!$acession = ""){
-				$nucl_lengths{$acession}=$nucl_length;
+			if(!$acession eq ""){
+				$nucl_lengths{$acession}=$dna_length;
 			}
 			$acession = $_;
-			$nucl_length = 0;
+			$dna_length = 0;
 		}
 		else{
-			$nucl_length += length($_);
+			$dna_length += length($_);
 		}
 	}
-	$nucl_lengths{$acession}=$nucl_length;
+	$nucl_lengths{$acession}=$dna_length;
 	close IN;
 	return(\%nucl_lengths);
 }
@@ -295,7 +290,7 @@ sub CALCULATE_METRICS{
 		#stores values for whole genome calculations
 		$gANI_numerator += ($blast_results[3]*($blast_results[2]/100));
 		$gANI_denominator += $shorter_gene;
-		$jANI_numerator += $Blast_Lines[2];
+		$jANI_numerator += $blast_results[2];
 		#backs up best hits for bootstrapping
 		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$blast_input.log");
 	}
@@ -306,7 +301,7 @@ sub CALCULATE_METRICS{
 	my $jANI = ($jANI_numerator/$total_matches);
 	my $gANI = ($gANI_numerator/$gANI_denominator);
 	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
-	my $tANI = -log($gANINumerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
+	my $tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
 
 	#return calculations with the following format:
 	#Query_Genome&Database_Genome	jANI	gANI	AF	tANI
@@ -330,9 +325,13 @@ sub BOOTSTRAP{
 	open(IN, "< $best_hits_file");
 	while(<IN>){
 		chomp;
-		my @best_hit_data = split(/\t/,@_);
-		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_bits_data[2]\t$best_hits_data[3]";
+		my @best_hits_data = split(/\t/,@_);
+		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_hits_data[2]\t$best_hits_data[3]";
 	}
+
+	#gets handles for output
+	my $key_for_handles = $best_hits{(keys %best_hits)[rand keys %best_hits]};
+	my($query_handle,$database_handle)=($key_for_handles=~/(.*?)\&(.*)/);
 
 	#takes a random sample with replacement of best hits
 	my @best_hits_query_names = keys %best_hits;
@@ -366,8 +365,8 @@ sub OUTPUT{
 	#and an array of headers
 	#prints resulting matrices to files.
 	my $string_to_append = shift;
-	my @unhashed_information = @{shift};
-	my @names = @{shift};
+	my @unhashed_information = @{(my $array_ref = shift)};
+	my @names = @{(my $array_ref = shift)};
 	my (%jANI,%gANI,%AF,%tANI,@names);
 
 	#prep data for printing
@@ -483,7 +482,7 @@ sub SPLIT_FASTA{
 	my $whole_genome_length = 0;
 	my($fragment_asc) = ($fastafile=~/(.*?)\..*/);
 	open(IN, "< $fastafile");
-	open(OUT, "+> intermediates/splits/$fastafile.split")
+	open(OUT, "+> intermediates/splits/$fastafile.split");
 	while(<IN>){
 		chomp;
 		if($_=~/\>/){
@@ -494,9 +493,9 @@ sub SPLIT_FASTA{
 			$whole_genome_length += lenght($_);
 
 			#remove any fragment under 100nt in size (field standard)
-			if($sequence_fragments[$sequence_fragments] < 100){
-				#check this code. Not sure what I was thinking, and whether this actually works as intended or not!
-				pop(@sequence_fragments);
+			for (my $index=0; $index<$sequence_fragments; $index++){
+				if($sequence_fragments[$index] < 100){
+				splice(@sequence_fragments, $index, 1);
 			}
 
 			foreach my $fragment (@sequence_fragments){
@@ -516,7 +515,7 @@ sub MAKE_BLAST_DATABASE{
 	#creates a BLAST searchable database from input
 	my $fasta_file = shift;
 	my $output_location = shift;
-	system("makeblastdb -dbtype nucl -in $fastafile -out $output_location");
+	system("makeblastdb -dbtype nucl -in $fasta_file -out $output_location");
 }
 
 sub PRINT_TO_FILE{
