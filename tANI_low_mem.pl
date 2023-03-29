@@ -16,7 +16,7 @@ my $help = 0;
 my $bootnum = my $verbosity = 0;
 my ($identity_cutoff,$coverage_cutoff,$thread_limit);
 #is shared for multithreading
-my ($semaphore,%split_genomes_and_lengths,%fragment_lengths,%contig_lengths):shared;
+my ($semaphore,%fragment_lengths,%contig_lengths,%split_genomes_and_lengths):shared;
 
 #get_inputs
 GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=s' => \$identity_cutoff, 'ev=s' => \$evalue, 'cv=s' => \$coverage_cutoff, 'boot=s' => \$bootnum, 'bt=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help);
@@ -33,7 +33,8 @@ if($help==1){
 	Input genomes should be placed in the directory you are executing this command from.
 	Only files with the extensions: fasta, fna, contig, or contigs, will be recognized.
 	Furthermore ensure these sequence files are in FASTA format.
-	The original input files can be found in intermediates/unchanged_inputs after initial setup is complete.
+	Be aware that input files within the home directory will be edited to remove special characters;
+	However, the original unedited inputs can be found in intermediates/unchanged_inputs after initial setup.
 
 	Please report any problems to the GitHub: https\:\/\/github.com\/sophiagosselin\/tANI_Matrix
 	OR to sophia.gosselin\@uconn.edu
@@ -59,8 +60,9 @@ if($help==1){
 VERBOSEPRINT(1, "Initializing\n");
 my(@renamed_input_genomes) = RENAME_INPUT_FILES(@input_genomes);
 my($split_genome_ref) = SETUP(@renamed_input_genomes);
-MAIN($split_genome_ref,@renamed_input_genomes);
-
+%split_genomes_and_lengths = %{$split_genome_ref};
+MAIN(@renamed_input_genomes);
+VERBOSEPRINT(0,"All processes complete. See output directory for results.\n");
 
 sub SETUP{
 	my @input_files = @_;
@@ -71,7 +73,7 @@ sub SETUP{
 	$coverage_cutoff = SETUP_CV_ID($coverage_cutoff,"No coverage threshold specified. Defaulting to 0.7\n");
 
 	#check for directory presence, creates if not already
-	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/calc_backup","intermediates/blast_output","intermediates/unchanged_inputs","intermediates/blastdb","Outputs","Outputs/AF","Outputs/Distance","Outputs/gANI","Outputs/jANI");
+	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/calc_backup","intermediates/blast_output","intermediates/unchanged_inputs","intermediates/blastdb","outputs","outputs/AF","outputs/tANI","outputs/gANI","outputs/jANI");
 
 	#finds core count if no thread limit was specified
 	if(!defined $thread_limit){
@@ -98,13 +100,15 @@ sub SETUP{
 
 	#sends input files to be prepared with the setup genomes subroutine. Reutns array of fragmented genomes
 	my($split_genome_ref)=THREAD_MANAGER("SETUP_GENOME", \@input_files);
-	my(@array_of_hashes) = @{$split_genome_ref};
-	my(%split_genomes_and_lengths)=MERGE_HASHES(@array_of_hashes);
+	my @array_of_hashes = @{$split_genome_ref};
+
+	my($hash_ref_new) = MERGE_HASHES(@array_of_hashes);
+	my(%split_genomes_new)=%{$hash_ref_new};
 
 	#merge backup with new calcs if nessecary.
-	%split_genomes_and_lengths = MERGE_HASHES(\%split_genomes_backup,\%split_genomes_and_lengths);
+	my($split_genomes_and_lengths_local_ref) = MERGE_HASHES(\%split_genomes_backup,$hash_ref_new);
 
-	return(\%split_genomes_and_lengths);
+	return($split_genomes_and_lengths_local_ref);
 }
 
 sub SETUP_GENOME{
@@ -121,15 +125,19 @@ sub SETUP_GENOME{
 	$return_info{$input_split}=$genome_length;
 	VERBOSEPRINT(2,"$input_file has been fragmented. 1020nt fragment file located at $input_split\n");
 
-	#make BLAST database from input file
+	#make BLAST database from file
 	VERBOSEPRINT(2,"Creating blastn database for $input_file\n");
 	MAKE_BLAST_DATABASE($input_file,"intermediates/blastdb/$input_file");
 
 	#in case of crash, saves related genome information
 	PRINT_TO_FILE("$input_file\t$genome_length\n","setup.log");
 
+	#free up thread
+	$semaphore->up;
+
 	#for return
-	return(\%return_info);
+	my $return_info_ref = (\%return_info);
+	return($return_info_ref);
 }
 
 sub SETUP_CV_ID{
@@ -148,7 +156,6 @@ sub SETUP_CV_ID{
 }
 
 sub MAIN{
-	%split_genomes_and_lengths = %{(my $hash_ref = shift)};
 	my @input_files = @_;
 	my (@split_genomes,@names_for_output);
 
@@ -158,19 +165,25 @@ sub MAIN{
 	}
 
 	#comprehensive all vs. all BLAST searches and database creation
+	#make BLAST database from input file
+	VERBOSEPRINT(1,"Running all vs all BLAST.\n");
 	my($blast_outputs_reference)=THREAD_MANAGER("BLAST_GENOMES",\@split_genomes,\@input_files);
 	my(@blast_outputs) = @{$blast_outputs_reference};
 
+	VERBOSEPRINT(1,"Loading fragment and genome lengths into memory.\n");
 	#load fragment lengths for all genomes into memory
 	my($fragment_l_ref)=THREAD_MANAGER("GET_ACESSION_LENGTHS",\@split_genomes);
 	my(@array_of_hashes) = @{$fragment_l_ref};
-	%fragment_lengths = MERGE_HASHES(@array_of_hashes);
+	($fragment_l_ref) = MERGE_HASHES(@array_of_hashes);
+	%fragment_lengths = %{$fragment_l_ref};
 
 	#load contig lengths for all genomes into memory
 	my($conting_l_ref)=THREAD_MANAGER("GET_ACESSION_LENGTHS",\@input_files);
 	my(@array_of_hashes2) = @{$conting_l_ref};
-	%contig_lengths = MERGE_HASHES(@array_of_hashes2);
+	($conting_l_ref) = MERGE_HASHES(@array_of_hashes2);
+	%contig_lengths = %{$conting_l_ref};
 
+	VERBOSEPRINT(1,"Calculating metrics for all comparisons.\n");
 	#Calculating distance, ANI, AF, and gANI
 	my($calc_reference)=THREAD_MANAGER("CALCULATE_METRICS",\@blast_outputs);
 	my(@calculations)=@{$calc_reference};
@@ -180,6 +193,7 @@ sub MAIN{
 
 	#creates array of genome names without file extensions
 	#and pushes result for self v self comp to @calculations for output
+	VERBOSEPRINT(1,"Printing original all vs all matrix to output files.\n");
 	foreach my $entry (@input_files){
 		my($genome_name)=($entry=~/(.*?)\..*/);
 		push(@names_for_output,$genome_name);
@@ -191,16 +205,22 @@ sub MAIN{
 
 	#if bootstrapping is needed, begin here
 	if($bootnum eq 0){
-		VERBOSEPRINT(0,"No bootstraped matrices requested. Terminating run.\n");
+		VERBOSEPRINT(1,"No bootstraped matrices requested. Terminating run.\n");
 		return();
 	}
 	else{
+		VERBOSEPRINT(1,"Beginning non-parametric bootstrap process.\n");
 		my @best_hit_logs = glob "intermediates/calc_backup/*.log";
 		for (my $boot_counter=0; $boot_counter<$bootnum; $boot_counter++){
-			my(@bootstrap_calculations)=@{((my $calc_reference)=THREAD_MANAGER("BOOTSTRAP",\@best_hit_logs))};
+			my $for_verbose = ($boot_counter+1);
+			VERBOSEPRINT(1,"Starting bootstap $for_verbose.\n");
+			my $calc_reference=THREAD_MANAGER("BOOTSTRAP",\@best_hit_logs);
+			my(@bootstrap_calculations)=@{$calc_reference};
 			#need to add a method for pushing self-self to array
+			VERBOSEPRINT(1,"Printing bootstap $for_verbose to file.\n");
 			OUTPUT($boot_counter,\@bootstrap_calculations,\@names_for_output);
 		}
+		return();
 	}
 }
 
@@ -211,7 +231,8 @@ sub THREAD_MANAGER{
 	#IMPORTANT!!!!
 	#every sub called by this function must end with $semaphore->up;
 	my $subroutine = shift;
-	my @thread_input = @{(my $array_ref = shift)};
+	my $array_ref = shift;
+	my @thread_input = @{$array_ref};
 	my @sub_specific_arguments = @_;
 	my @threads;
 	foreach my $threadable_input (@thread_input){
@@ -229,7 +250,8 @@ sub BLAST_GENOMES {
 	#BLASTS the first genome against all other genomes. Returns list of BLAST output files
 	#NOTES: Needs a mechanism to backup and check if a search has already been completed.
 	my $query_genome = shift;
-	my @database_genomes = @{(my $array_ref = shift)};
+	my $array_ref = shift;
+	my @database_genomes = @{$array_ref};
 	my ($query_file_handle) = ($query_genome=~/.*?\/(.*?)\..*/);
 	my @return_files;
 	foreach my $database (@database_genomes){
@@ -249,8 +271,8 @@ sub GET_ACESSION_LENGTHS{
 	my $dna_length = 0;
 	my $acession ="";
 	my %nucl_lengths;
-	open(IN, "< $input_file");
-	while(<IN>){
+	open(my $fh, "< $input_file");
+	while(<$fh>){
 		chomp;
 		if($_=~/\>/){
 			if(!$acession eq ""){
@@ -264,7 +286,8 @@ sub GET_ACESSION_LENGTHS{
 		}
 	}
 	$nucl_lengths{$acession}=$dna_length;
-	close IN;
+	close $fh;
+	$semaphore->up;
 	return(\%nucl_lengths);
 }
 
@@ -279,8 +302,8 @@ sub CALCULATE_METRICS{
 	#get query and database genome names
 	my ($query_handle,$database_handle) = ($blast_input =~/(.*?)\&(.*?)\..*/);
 
-	open(IN, "< $blast_input");
-	while(<IN>){
+	open(my $fh, "< $blast_input");
+	while(<$fh>){
 		chomp;
 		my @blast_results = split(/\t/,@_);
 		#skips match if a better hit was already found for this a given query
@@ -305,7 +328,7 @@ sub CALCULATE_METRICS{
 		#backs up best hits for bootstrapping
 		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$blast_input.log");
 	}
-	close IN;
+	close $fh;
 
 	#calculation time
 	my $total_matches = keys %best_hits;
@@ -321,6 +344,7 @@ sub CALCULATE_METRICS{
 	#for backup
 	PRINT_TO_FILE("$return_info\n","original_calculations.log");
 
+	$semaphore->up;
 	return($return_info);
 }
 
@@ -333,13 +357,13 @@ sub BOOTSTRAP{
 	my $gANI_numerator = my $gANI_denominator = my $jANI_numerator = 0;
 
 	#reads in log, gets number of best hits, and data
-	open(IN, "< $best_hits_file");
-	while(<IN>){
+	open(my $fh, "< $best_hits_file");
+	while(<$fh>){
 		chomp;
 		my @best_hits_data = split(/\t/,@_);
 		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_hits_data[2]\t$best_hits_data[3]";
 	}
-	close IN;
+	close $fh;
 	#gets handles for output
 	my $key_for_handles = $best_hits{(keys %best_hits)[rand keys %best_hits]};
 	my($query_handle,$database_handle)=($key_for_handles=~/(.*?)\&(.*)/);
@@ -366,6 +390,7 @@ sub BOOTSTRAP{
 
 	my $return_info = "$query_handle\&$database_handle\t$jANI\t$gANI\t$AF\t$tANI";
 
+	$semaphore->up;
 	return($return_info);
 }
 
@@ -398,10 +423,10 @@ sub OUTPUT{
 	my($tANI_matrix)=MATRIX_FROM_HASH(\%tANI,@names);
 
 	#print matrices to file
-	PRINT_TO_FILE($jANI_matrix,"jANI_$string_to_append.matrix");
-	PRINT_TO_FILE($gANI_matrix,"gANI_$string_to_append.matrix");
-	PRINT_TO_FILE($AF_matrix,"AF_$string_to_append.matrix");
-	PRINT_TO_FILE($tANI_matrix,"tANI_$string_to_append.matrix");
+	PRINT_TO_FILE($jANI_matrix,"outputs/jANI/jANI_$string_to_append.matrix");
+	PRINT_TO_FILE($gANI_matrix,"outputs/gANI/gANI_$string_to_append.matrix");
+	PRINT_TO_FILE($AF_matrix,"outputs/AF/AF_$string_to_append.matrix");
+	PRINT_TO_FILE($tANI_matrix,"outputs/tANI/tANI_$string_to_append.matrix");
 }
 
 sub MATRIX_FROM_HASH{
@@ -467,22 +492,22 @@ sub STANDARDIZE_FASTA {
 	#makes later searches and moving of files much easier.
 	#additionally moves original file into a directory while leaving changed file behind
 	my $fastafile = shift;
-	open(IN, "< $fastafile");
 	my ($annotation) = ($fastafile=~/(.*?)\..*/);
 	$annotation=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
-	open(OUT, "+> temp.fasta");
-	while(<IN>){
+	open(my $fh, "< $fastafile");
+	open(my $OUT, "+> temp.fasta.$fastafile");
+	while(<$fh>){
 		if($_=~/\>/){
-			print OUT "\>$annotation\n";
+			print $OUT "\>$annotation\n";
 		}
 		else{
-			print OUT $_;
+			print $OUT $_;
 		}
 	}
-	close IN;
-	close OUT;
+	close $fh;
+	close $OUT;
 	unlink $fastafile;
-	rename("temp.fasta",$fastafile);
+	rename("temp.fasta.$fastafile",$fastafile);
 }
 
 sub SPLIT_FASTA{
@@ -492,9 +517,9 @@ sub SPLIT_FASTA{
 	my $fragment_count = 0;
 	my $whole_genome_length = 0;
 	my($fragment_asc) = ($fastafile=~/(.*?)\..*/);
-	open(IN, "< $fastafile") or die VERBOSEPRINT(0,"Could not open $fastafile. Try providing the software with more RAM.\n If this does not help, please contact the dev.\n");
-	open(OUT, "+> intermediates/splits/$fastafile.split");
-	while(<IN>){
+	open(my $fh, "< $fastafile") or die VERBOSEPRINT(0,"Could not open $fastafile. Try providing the software with more RAM.\n If this does not help, please contact the dev.\n");
+	open(my $OUT, "+> intermediates/splits/$fastafile.split");
+	while(<$fh>){
 		chomp;
 		if($_=~/\>/){
 			next;
@@ -511,14 +536,14 @@ sub SPLIT_FASTA{
 			}
 
 			foreach my $fragment (@sequence_fragments){
-				print OUT ">$fragment_asc\n$fragment\n";
+				print $OUT ">$fragment_asc\n$fragment\n";
 				$fragment_count++;
 			}
 
 		}
 	}
-	close IN;
-	close OUT;
+	close $fh;
+	close $OUT;
 	return("intermediates/splits/$fastafile.split",$whole_genome_length);
 }
 
@@ -569,7 +594,8 @@ sub MERGE_HASHES{
 		my %temp_hash = %{$hashref};
 		%new_hash = (%new_hash,%temp_hash);
 	}
-	return(%new_hash);
+	my $test = (\%new_hash);
+	return(\%new_hash);
 }
 
 sub RENAME_INPUT_FILES{
@@ -583,6 +609,9 @@ sub RENAME_INPUT_FILES{
 		if(!$new_file_name eq $file){
 			copy("$file","$new_file_name");
 			move("$file","intermediates/unchanged_inputs/$file");
+		}
+		else{
+			copy("$file","intermediates/unchanged_inputs/$file");
 		}
 		push(@renamed_files,$new_file_name);
 	}
