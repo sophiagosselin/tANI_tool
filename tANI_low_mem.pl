@@ -57,16 +57,18 @@ if($help==1){
 	[t]: Thread count. Default will use half of available cores.\n";
 }
 
+#NOTES FOR FUTURE DEV.
+#Replace your current hash system with the more complicated hash sub key system. It should simplify things
+
 VERBOSEPRINT(1, "Initializing\n");
 my(@renamed_input_genomes) = RENAME_INPUT_FILES(@input_genomes);
-my($split_genome_ref) = SETUP(@renamed_input_genomes);
-%split_genomes_and_lengths = %{$split_genome_ref};
+SETUP(@renamed_input_genomes);
 MAIN(@renamed_input_genomes);
 VERBOSEPRINT(0,"All processes complete. See output directory for results.\n");
 
 sub SETUP{
 	my @input_files = @_;
-	my(%split_genomes_backup);
+	my %processed_genomes_information_from_backup;
 
 	#check ID and CV inputs, reformat if needed.
 	$identity_cutoff = SETUP_CV_ID($identity_cutoff,"No identity threshold specified. Defaulting to 0.7\n");
@@ -86,11 +88,10 @@ sub SETUP{
 
 	#check if backup logs exist. Load into memory if present.
 	if(-e "setup.log"){
-		my($split_genome_backup_ref) = RECOVER_SETUP_INFORMATION("setup.log");
-		(%split_genomes_backup) = %{$split_genome_backup_ref};
+		(%processed_genomes_information_from_backup)=RECOVER_SETUP_INFORMATION("setup.log");
 
 		#removes any already prepped genomes from the SETUP GENOME subroutine
-		foreach my $backup (keys %split_genomes_backup){
+		foreach my $backup (keys %processed_genomes_information_from_backup){
 			my ($previously_ran_input) = ($backup=~/intermediates\/splits\/(.*?)\.split/);
 			my $index = 0;
 			$index ++ until $input_files[$index] eq $previously_ran_input;
@@ -98,17 +99,17 @@ sub SETUP{
 		}
 	}
 
-	#sends input files to be prepared with the setup genomes subroutine. Reutns array of fragmented genomes
-	my($split_genome_ref)=THREAD_MANAGER("SETUP_GENOME", \@input_files);
-	my @array_of_hashes = @{$split_genome_ref};
+	#sends input files to be prepared with the setup genomes subroutine. Returns array of fragmented genomes then dereferences it
+	my($array_of_hashes_ref)=THREAD_MANAGER("SETUP_GENOME", \@input_files);
+	my @array_of_hashes = @{$array_of_hashes_ref};
+	my(%processed_genomes_information_new) = MERGE_HASHES(@array_of_hashes);
 
-	my($hash_ref_new) = MERGE_HASHES(@array_of_hashes);
-	my(%split_genomes_new)=%{$hash_ref_new};
-
-	#merge backup with new calcs if nessecary.
-	my($split_genomes_and_lengths_local_ref) = MERGE_HASHES(\%split_genomes_backup,$hash_ref_new);
-
-	return($split_genomes_and_lengths_local_ref);
+	#merge backup with new calcs if nessecary
+	if(%processed_genomes_information_from_backup){
+		(%processed_genomes_information_new) = MERGE_HASHES(\%processed_genomes_information_from_backup,\%processed_genomes_information_new);
+	}
+	#set info to shared hash
+	%split_genomes_and_lengths = %processed_genomes_information_new;
 }
 
 sub SETUP_GENOME{
@@ -136,8 +137,7 @@ sub SETUP_GENOME{
 	$semaphore->up;
 
 	#for return
-	my $return_info_ref = (\%return_info);
-	return($return_info_ref);
+	return(\%return_info);
 }
 
 sub SETUP_CV_ID{
@@ -174,14 +174,12 @@ sub MAIN{
 	#load fragment lengths for all genomes into memory
 	my($fragment_l_ref)=THREAD_MANAGER("GET_ACESSION_LENGTHS",\@split_genomes);
 	my(@array_of_hashes) = @{$fragment_l_ref};
-	($fragment_l_ref) = MERGE_HASHES(@array_of_hashes);
-	%fragment_lengths = %{$fragment_l_ref};
+	%fragment_lengths = MERGE_HASHES(@array_of_hashes);
 
 	#load contig lengths for all genomes into memory
 	my($conting_l_ref)=THREAD_MANAGER("GET_ACESSION_LENGTHS",\@input_files);
 	my(@array_of_hashes2) = @{$conting_l_ref};
-	($conting_l_ref) = MERGE_HASHES(@array_of_hashes2);
-	%contig_lengths = %{$conting_l_ref};
+	%contig_lengths = MERGE_HASHES(@array_of_hashes2);
 
 	VERBOSEPRINT(1,"Calculating metrics for all comparisons.\n");
 	#Calculating distance, ANI, AF, and gANI
@@ -234,14 +232,17 @@ sub THREAD_MANAGER{
 	my $array_ref = shift;
 	my @thread_input = @{$array_ref};
 	my @sub_specific_arguments = @_;
-	my @threads;
+	my (@threads,@return_values);
 	foreach my $threadable_input (@thread_input){
 		# request a thread slot, waiting if none are available:
 		$semaphore->down();
-		my ($thread) = threads->create({'context' => 'list'}, \&$subroutine,$threadable_input,@sub_specific_arguments);
+		my($thread)=threads->create(\&$subroutine,$threadable_input,@sub_specific_arguments);
 		push(@threads,$thread);
 	}
-	my @return_values = $_->join() for @threads;
+	foreach (@threads){
+		my $return_value = $_->join();
+		push(@return_values,$return_value);
+	}
 	return(\@return_values);
 }
 
@@ -252,11 +253,12 @@ sub BLAST_GENOMES {
 	my $query_genome = shift;
 	my $array_ref = shift;
 	my @database_genomes = @{$array_ref};
-	my ($query_file_handle) = ($query_genome=~/.*?\/(.*?)\..*/);
+	my ($query_file_handle) = ($query_genome=~/.*\/(.*?)\..*/);
+	#print "$query_file_handle\n" or die VERBOSEPRINT(0, "Could not properly retrieve file handle for $query_genome.\n");
 	my @return_files;
 	foreach my $database (@database_genomes){
-		next if($database eq $query_genome);
 		my ($database_file_handle) = ($database=~/(.*?)\..*/);
+		next if($database_file_handle eq $query_file_handle);
 		system("blastn -db intermediates/blastdb/$database -query $query_genome -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast' $task");
 		push(@return_files,"intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast");
 	}
@@ -309,7 +311,7 @@ sub CALCULATE_METRICS{
 		#skips match if a better hit was already found for this a given query
 		next if($best_hits{$blast_results[0]});
 		#skips match if it does not meet identity cutoff
-		next if($blast_results[2] < $identity_cutoff);
+		next if(($blast_results[2]/100) < $identity_cutoff);
 		#determines the "shorter gene" (the fragment, or the contig it is matching to). Most likely to be fragment.
 		if ($contig_lengths{$blast_results[1]} <= $fragment_lengths{$blast_results[0]}){
 			$shorter_gene = $contig_lengths{$blast_results[1]};
@@ -490,17 +492,26 @@ sub VERBOSEPRINT{
 sub STANDARDIZE_FASTA {
 	#removes most unique characters from annotation lines and simplifies the line
 	#makes later searches and moving of files much easier.
+	#removes all line breaks from sequences
 	#additionally moves original file into a directory while leaving changed file behind
 	my $fastafile = shift;
+	my $toggle = 0;
 	my ($annotation) = ($fastafile=~/(.*?)\..*/);
 	$annotation=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
 	open(my $fh, "< $fastafile");
 	open(my $OUT, "+> temp.fasta.$fastafile");
 	while(<$fh>){
 		if($_=~/\>/){
+			if($toggle == 0){
+				$toggle = 1;
+			}
+			else{
+				print $OUT "\n";
+			}
 			print $OUT "\>$annotation\n";
 		}
 		else{
+			chomp;
 			print $OUT $_;
 		}
 	}
@@ -530,13 +541,13 @@ sub SPLIT_FASTA{
 
 			#remove any fragment under 100nt in size (field standard)
 			for (my $index=0; $index<$#sequence_fragments; $index++){
-				if($sequence_fragments[$index] < 100){
+				if(length($sequence_fragments[$index]) < 100){
 					splice(@sequence_fragments, $index, 1);
 				}
 			}
 
 			foreach my $fragment (@sequence_fragments){
-				print $OUT ">$fragment_asc\n$fragment\n";
+				print $OUT ">$fragment_asc\_$fragment_count\n$fragment\n";
 				$fragment_count++;
 			}
 
@@ -570,14 +581,14 @@ sub RECOVER_SETUP_INFORMATION{
 	VERBOSEPRINT(1, "Recovering setup data from previous run.\n");
 	my $infile = shift;
 	my %genome_setup_backup;
-	open(BACKUP, "< $infile");
-	while(<BACKUP>){
+	open(my $BACKUP, "< $infile");
+	while(<$BACKUP>){
 		chomp;
-		my @recovered = split(/\t/,@_);
+		my @recovered = split(/\t/,$_);
 		$genome_setup_backup{$recovered[0]}=$recovered[1];
 	}
-	close BACKUP;
-	return(\%genome_setup_backup);
+	close $BACKUP;
+	return(%genome_setup_backup);
 }
 
 #May remake in future. For now, scrapping feature
@@ -595,7 +606,7 @@ sub MERGE_HASHES{
 		%new_hash = (%new_hash,%temp_hash);
 	}
 	my $test = (\%new_hash);
-	return(\%new_hash);
+	return(%new_hash);
 }
 
 sub RENAME_INPUT_FILES{
@@ -616,4 +627,13 @@ sub RENAME_INPUT_FILES{
 		push(@renamed_files,$new_file_name);
 	}
 	return @renamed_files;
+}
+
+sub TEST_HASH{
+	my $hash_name = shift;
+	my $hash_ref = shift;
+	my %hash = %{$hash_ref};
+	foreach my $key (keys %hash){
+		print "$hash_name\t$key\t$hash{$key}\n";
+	}
 }
