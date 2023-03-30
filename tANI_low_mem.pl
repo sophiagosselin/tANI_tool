@@ -7,6 +7,7 @@ use Thread::Semaphore;
 use Getopt::Long;
 use Scalar::Util;
 use File::Copy;
+use Cwd;
 
 #globals
 my @input_genomes = glob "*.fna *.fasta *.contig *.contigs";
@@ -61,8 +62,8 @@ if($help==1){
 #Replace your current hash system with the more complicated hash sub key system. It should simplify things
 
 VERBOSEPRINT(1, "Initializing\n");
-my(@renamed_input_genomes) = RENAME_INPUT_FILES(@input_genomes);
-SETUP(@renamed_input_genomes);
+
+my @renamed_input_genomes = SETUP(@input_genomes);
 MAIN(@renamed_input_genomes);
 VERBOSEPRINT(0,"All processes complete. See output directory for results.\n");
 
@@ -76,6 +77,9 @@ sub SETUP{
 
 	#check for directory presence, creates if not already
 	DIRECTORY_CHECK("intermediates","intermediates/splits","intermediates/calc_backup","intermediates/blast_output","intermediates/unchanged_inputs","intermediates/blastdb","outputs","outputs/AF","outputs/tANI","outputs/gANI","outputs/jANI");
+
+	#renames inputs for ease of use. Saves old versions elsewhere
+	my(@renamed_input_files) = RENAME_INPUT_FILES(@input_files);
 
 	#finds core count if no thread limit was specified
 	if(!defined $thread_limit){
@@ -95,12 +99,12 @@ sub SETUP{
 			my ($previously_ran_input) = ($backup=~/intermediates\/splits\/(.*?)\.split/);
 			my $index = 0;
 			$index ++ until $input_files[$index] eq $previously_ran_input;
-			splice(@input_files, $index, 1);
+			splice(@renamed_input_files, $index, 1);
 		}
 	}
 
 	#sends input files to be prepared with the setup genomes subroutine. Returns array of fragmented genomes then dereferences it
-	my($array_of_hashes_ref)=THREAD_MANAGER("SETUP_GENOME", \@input_files);
+	my($array_of_hashes_ref)=THREAD_MANAGER("SETUP_GENOME", \@renamed_input_files);
 	my @array_of_hashes = @{$array_of_hashes_ref};
 	my(%processed_genomes_information_new) = MERGE_HASHES(@array_of_hashes);
 
@@ -110,6 +114,7 @@ sub SETUP{
 	}
 	#set info to shared hash
 	%split_genomes_and_lengths = %processed_genomes_information_new;
+	return(@renamed_input_files);
 }
 
 sub SETUP_GENOME{
@@ -168,7 +173,12 @@ sub MAIN{
 	#make BLAST database from input file
 	VERBOSEPRINT(1,"Running all vs all BLAST.\n");
 	my($blast_outputs_reference)=THREAD_MANAGER("BLAST_GENOMES",\@split_genomes,\@input_files);
-	my(@blast_outputs) = @{$blast_outputs_reference};
+	my(@blast_outputs_refs) = @{$blast_outputs_reference};
+	#dereference array
+	my @blast_outputs;
+	foreach my $ref (@blast_outputs_refs){
+		push(@blast_outputs,@{$ref});
+	}
 
 	VERBOSEPRINT(1,"Loading fragment and genome lengths into memory.\n");
 	#load fragment lengths for all genomes into memory
@@ -187,7 +197,7 @@ sub MAIN{
 	my(@calculations)=@{$calc_reference};
 
 	#clear memory
-	(@array_of_hashes = @array_of_hashes2 = $fragment_l_ref = $blast_outputs_reference = $conting_l_ref = $calc_reference = ());
+	(@array_of_hashes = @blast_outputs_refs = @array_of_hashes2 = $fragment_l_ref = $blast_outputs_reference = $conting_l_ref = $calc_reference = ());
 
 	#creates array of genome names without file extensions
 	#and pushes result for self v self comp to @calculations for output
@@ -214,6 +224,10 @@ sub MAIN{
 			VERBOSEPRINT(1,"Starting bootstap $for_verbose.\n");
 			my $calc_reference=THREAD_MANAGER("BOOTSTRAP",\@best_hit_logs);
 			my(@bootstrap_calculations)=@{$calc_reference};
+			foreach my $entry (@input_files){
+				my($genome_name)=($entry=~/(.*?)\..*/);
+				push(@bootstrap_calculations,"$genome_name\&$genome_name\t0\t0\t0\t13");
+			}
 			#need to add a method for pushing self-self to array
 			VERBOSEPRINT(1,"Printing bootstap $for_verbose to file.\n");
 			OUTPUT($boot_counter,\@bootstrap_calculations,\@names_for_output);
@@ -263,7 +277,7 @@ sub BLAST_GENOMES {
 		push(@return_files,"intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast");
 	}
 	$semaphore->up;
-	return(@return_files);
+	return(\@return_files);
 }
 
 sub GET_ACESSION_LENGTHS{
@@ -280,7 +294,7 @@ sub GET_ACESSION_LENGTHS{
 			if(!$acession eq ""){
 				$nucl_lengths{$acession}=$dna_length;
 			}
-			$acession = $_;
+			($acession) = ($_=~/\>(.*)/);
 			$dna_length = 0;
 		}
 		else{
@@ -302,12 +316,12 @@ sub CALCULATE_METRICS{
 	my $gANI_numerator = my $gANI_denominator = my $jANI_numerator = 0;
 
 	#get query and database genome names
-	my ($query_handle,$database_handle) = ($blast_input =~/(.*?)\&(.*?)\..*/);
+	my ($query_handle,$database_handle) = ($blast_input =~/.*\/(.*?)\&(.*?)\.blast/);
 
 	open(my $fh, "< $blast_input");
 	while(<$fh>){
 		chomp;
-		my @blast_results = split(/\t/,@_);
+		my @blast_results = split(/\t/,$_);
 		#skips match if a better hit was already found for this a given query
 		next if($best_hits{$blast_results[0]});
 		#skips match if it does not meet identity cutoff
@@ -328,7 +342,7 @@ sub CALCULATE_METRICS{
 		$gANI_denominator += $shorter_gene;
 		$jANI_numerator += $blast_results[2];
 		#backs up best hits for bootstrapping
-		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$blast_input.log");
+		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$query_handle\&$database_handle.log");
 	}
 	close $fh;
 
@@ -336,8 +350,8 @@ sub CALCULATE_METRICS{
 	my $total_matches = keys %best_hits;
 	my $jANI = ($jANI_numerator/$total_matches);
 	my $gANI = ($gANI_numerator/$gANI_denominator);
-	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
-	my $tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
+	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
+	my $tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
 
 	#return calculations with the following format:
 	#Query_Genome&Database_Genome	jANI	gANI	AF	tANI
@@ -362,13 +376,13 @@ sub BOOTSTRAP{
 	open(my $fh, "< $best_hits_file");
 	while(<$fh>){
 		chomp;
-		my @best_hits_data = split(/\t/,@_);
+		my @best_hits_data = split(/\t/,$_);
 		$best_hits{$best_hits_data[0]}="$best_hits_data[1]\t$best_hits_data[2]\t$best_hits_data[3]";
 	}
 	close $fh;
+
 	#gets handles for output
-	my $key_for_handles = $best_hits{(keys %best_hits)[rand keys %best_hits]};
-	my($query_handle,$database_handle)=($key_for_handles=~/(.*?)\&(.*)/);
+	my($query_handle,$database_handle)=($best_hits_file=~/.*\/(.*?)\&(.*?)\.log/);
 
 	#takes a random sample with replacement of best hits
 	my @best_hits_query_names = keys %best_hits;
@@ -378,8 +392,8 @@ sub BOOTSTRAP{
 	}
 
 	#calculates metrics from the random sample
-	foreach my $r_sample (%random_sample){
-		my @random_sample_data = split(/\t/,@_);
+	foreach my $r_sample (values %random_sample){
+		my @random_sample_data = split(/\t/,$best_hits{$r_sample});
 		$gANI_numerator += ($random_sample_data[1]*($random_sample_data[0]/100));
 		$gANI_denominator += $random_sample_data[2];
 		$jANI_numerator += $random_sample_data[0];
@@ -387,8 +401,8 @@ sub BOOTSTRAP{
 
 	my $jANI = ($jANI_numerator/$number_of_hits);
 	my $gANI = ($gANI_numerator/$gANI_denominator);
-	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
-	my $tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.split"});
+	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
+	my $tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
 
 	my $return_info = "$query_handle\&$database_handle\t$jANI\t$gANI\t$AF\t$tANI";
 
@@ -403,8 +417,10 @@ sub OUTPUT{
 	#and an array of headers
 	#prints resulting matrices to files.
 	my $string_to_append = shift;
-	my @unhashed_information = @{(my $array_ref = shift)};
-	my @names = @{(my $array_ref = shift)};
+	my $array_ref = shift;
+	my $array_ref2 = shift;
+	my @unhashed_information = @{$array_ref};
+	my @names = @{$array_ref2};
 	my (%jANI,%gANI,%AF,%tANI);
 
 	#prep data for printing
@@ -448,7 +464,7 @@ sub MATRIX_FROM_HASH{
 	my $current_query_name = "";
 	foreach my $entry (sort keys %matrix_data){
 		my($query_name)=($entry=~/(.*?)\&.*/);
-		if(!$query_name eq $current_query_name){
+		if($query_name ne $current_query_name){
 			$matrix_string.="\n$query_name\t";
 			$current_query_name = $query_name;
 		}
@@ -492,23 +508,23 @@ sub VERBOSEPRINT{
 sub STANDARDIZE_FASTA {
 	#removes most unique characters from annotation lines and simplifies the line
 	#makes later searches and moving of files much easier.
-	#removes all line breaks from sequences
+	#removes all line breaks from sequences, and gives every contig a unique ID
 	#additionally moves original file into a directory while leaving changed file behind
 	my $fastafile = shift;
-	my $toggle = 0;
+	my $counter = 0;
 	my ($annotation) = ($fastafile=~/(.*?)\..*/);
 	$annotation=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
 	open(my $fh, "< $fastafile");
 	open(my $OUT, "+> temp.fasta.$fastafile");
 	while(<$fh>){
 		if($_=~/\>/){
-			if($toggle == 0){
-				$toggle = 1;
+			if($counter == 0){
 			}
 			else{
 				print $OUT "\n";
 			}
-			print $OUT "\>$annotation\n";
+			print $OUT "\>$annotation\_contig\_$counter\n";
+			$counter++;
 		}
 		else{
 			chomp;
@@ -547,7 +563,7 @@ sub SPLIT_FASTA{
 			}
 
 			foreach my $fragment (@sequence_fragments){
-				print $OUT ">$fragment_asc\_$fragment_count\n$fragment\n";
+				print $OUT ">$fragment_asc\_fragment\_$fragment_count\n$fragment\n";
 				$fragment_count++;
 			}
 
@@ -555,6 +571,7 @@ sub SPLIT_FASTA{
 	}
 	close $fh;
 	close $OUT;
+
 	return("intermediates/splits/$fastafile.split",$whole_genome_length);
 }
 
@@ -571,9 +588,9 @@ sub PRINT_TO_FILE{
 	#prints text to file
 	my $text_to_print = shift;
 	my $file_handle = shift;
-	open(BACKUP, ">> $file_handle");
-	print BACKUP "$text_to_print";
-	close BACKUP;
+	open(my $fh, ">> $file_handle");
+	print $fh "$text_to_print";
+	close $fh;
 }
 
 sub RECOVER_SETUP_INFORMATION{
@@ -613,16 +630,18 @@ sub RENAME_INPUT_FILES{
 	my @files_to_rename = @_;
 	my (@renamed_files,$rename);
 	foreach my $file (@files_to_rename){
-		($file=~s/[\ \[\]\(\)\:\;\/\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g);
-		my($handle,$extension)=($file=~/(.*)\.(.*)/);
+		my $prehandle = $file;
+		$prehandle=~s/[\ \[\]\(\)\:\;\/\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
+		my($handle)=($prehandle=~/(.*)\..*/);
 		$handle=~s/\./\_/g;
-		my $new_file_name = ("$handle\.$extension");
-		if(!$new_file_name eq $file){
-			copy("$file","$new_file_name");
-			move("$file","intermediates/unchanged_inputs/$file");
+		my $new_file_name = ("$handle".".fasta");
+		if($new_file_name eq $file){
+			copy("$file","intermediates/unchanged_inputs/$file") or die VERBOSEPRINT(0,"Copying of files failed. Check your permissions.\n");
 		}
 		else{
-			copy("$file","intermediates/unchanged_inputs/$file");
+			copy("$file","$new_file_name") or die VERBOSEPRINT(0,"Copying of files failed. Check your permissions.\n");
+			copy("$file","intermediates/unchanged_inputs/$file") or die VERBOSEPRINT(0,"Copying of files failed. Check your permissions.\n");
+			unlink($file);
 		}
 		push(@renamed_files,$new_file_name);
 	}
