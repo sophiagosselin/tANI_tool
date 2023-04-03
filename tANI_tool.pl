@@ -13,14 +13,13 @@ use Cwd;
 my @input_genomes = glob "*.fna *.fasta *.contig *.contigs";
 my $evalue = "1E-4";
 my $task = "";
-my $help = 0;
-my $bootnum = my $verbosity = 0;
+my $bootnum = my $verbosity = my $help = my $printlog = 0;
 my ($identity_cutoff,$coverage_cutoff,$thread_limit);
 #is shared for multithreading
 my ($semaphore,%fragment_lengths,%contig_lengths,%split_genomes_and_lengths):shared;
 
 #get_inputs
-GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=s' => \$identity_cutoff, 'ev=s' => \$evalue, 'cv=s' => \$coverage_cutoff, 'boot=s' => \$bootnum, 'bt=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help);
+GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=s' => \$identity_cutoff, 'ev=s' => \$evalue, 'cv=s' => \$coverage_cutoff, 'boot=s' => \$bootnum, 'bt=s' => \$bootnum, 'help+' => \$help, 'h+' => \$help, 'log=s' => \$printlog, 'l=s' => \$printlog);
 
 #check for help call
 if($help==1){
@@ -55,6 +54,7 @@ if($help==1){
 	[task]: Setting BLAST uses for its search criteria (see -task in BLAST).
 	[boot OR bt]: Number of non-parametric tANI bootstraps. Default: 0
 	[v]: Verbosity level. 1 for key checkpoints only. 2 for all messages. Default: 0
+	[log OR l]: Name of file to print logs to. If none is provided program prints messages to screen only. Default: None
 	[t]: Thread count. Default will use half of available cores.\n";
 }
 
@@ -80,6 +80,7 @@ sub SETUP{
 
 	#renames inputs for ease of use. Saves old versions elsewhere
 	my(@renamed_input_files) = RENAME_INPUT_FILES(@input_files);
+	my(@files_for_setup) = @renamed_input_files;
 
 	#finds core count if no thread limit was specified
 	if(!defined $thread_limit){
@@ -92,19 +93,19 @@ sub SETUP{
 
 	#check if backup logs exist. Load into memory if present.
 	if(-e "setup.log"){
-		(%processed_genomes_information_from_backup)=RECOVER_SETUP_INFORMATION("setup.log");
+		(%processed_genomes_information_from_backup)=RECOVER_INFORMATION_HASH("setup.log");
 
 		#removes any already prepped genomes from the SETUP GENOME subroutine
 		foreach my $backup (keys %processed_genomes_information_from_backup){
-			my ($previously_ran_input) = ($backup=~/intermediates\/splits\/(.*?)\.split/);
+			my($lookup)=($backup=~/.*\/(.*?)\.split/);
 			my $index = 0;
-			$index ++ until $input_files[$index] eq $previously_ran_input;
-			splice(@renamed_input_files, $index, 1);
+			$index ++ until $files_for_setup[$index] eq $lookup;
+			splice(@files_for_setup, $index, 1);
 		}
 	}
 
 	#sends input files to be prepared with the setup genomes subroutine. Returns array of fragmented genomes then dereferences it
-	my($array_of_hashes_ref)=THREAD_MANAGER("SETUP_GENOME", \@renamed_input_files);
+	my($array_of_hashes_ref)=THREAD_MANAGER("SETUP_GENOME", \@files_for_setup);
 	my @array_of_hashes = @{$array_of_hashes_ref};
 	my(%processed_genomes_information_new) = MERGE_HASHES(@array_of_hashes);
 
@@ -136,7 +137,7 @@ sub SETUP_GENOME{
 	MAKE_BLAST_DATABASE($input_file,"intermediates/blastdb/$input_file");
 
 	#in case of crash, saves related genome information
-	PRINT_TO_FILE("$input_file\t$genome_length\n","setup.log");
+	PRINT_TO_FILE("intermediates/splits/$input_file.split\t$genome_length\n","setup.log");
 
 	#free up thread
 	$semaphore->up;
@@ -161,8 +162,8 @@ sub SETUP_CV_ID{
 }
 
 sub MAIN{
-	my @input_files = @_;
-	my (@split_genomes,@names_for_output);
+	my (@input_files) = @_;
+	my (@split_genomes,@names_for_output,@blast_input_backup);
 
 	#creates input array from hash
 	foreach my $input (keys %split_genomes_and_lengths){
@@ -171,8 +172,12 @@ sub MAIN{
 
 	#comprehensive all vs. all BLAST searches and database creation
 	#make BLAST database from input file
+	if(-e "blast_database.log"){
+		@blast_input_backup = RECOVER_INFORMATION_ARRAY("blast_database.log");
+	}
+
 	VERBOSEPRINT(1,"Running all vs all BLAST.\n");
-	my($blast_outputs_reference)=THREAD_MANAGER("BLAST_GENOMES",\@split_genomes,\@input_files);
+	my($blast_outputs_reference)=THREAD_MANAGER("BLAST_GENOMES",\@split_genomes,\@input_files,\@blast_input_backup);
 	my(@blast_outputs_refs) = @{$blast_outputs_reference};
 	#dereference array
 	my @blast_outputs;
@@ -266,14 +271,19 @@ sub BLAST_GENOMES {
 	#NOTES: Needs a mechanism to backup and check if a search has already been completed.
 	my $query_genome = shift;
 	my $array_ref = shift;
+	my $array_ref2 = shift;
 	my @database_genomes = @{$array_ref};
+	my @completed_searches = @{$array_ref2};
 	my ($query_file_handle) = ($query_genome=~/.*\/(.*?)\..*/);
 	#print "$query_file_handle\n" or die VERBOSEPRINT(0, "Could not properly retrieve file handle for $query_genome.\n");
 	my @return_files;
 	foreach my $database (@database_genomes){
 		my ($database_file_handle) = ($database=~/(.*?)\..*/);
 		next if($database_file_handle eq $query_file_handle);
-		system("blastn -db intermediates/blastdb/$database -query $query_genome -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast' $task");
+		if(!grep(/^$query_file_handle\&$database_file_handle$/, @completed_searches)){
+			system("blastn -db intermediates/blastdb/$database -query $query_genome -evalue $evalue -outfmt 6 -out 'intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast' $task");
+			PRINT_TO_FILE("$query_file_handle&$database_file_handle\n","blast_database.log");
+		}
 		push(@return_files,"intermediates/blast_output/$query_file_handle\&$database_file_handle\.blast");
 	}
 	$semaphore->up;
@@ -342,7 +352,7 @@ sub CALCULATE_METRICS{
 		$gANI_denominator += $shorter_gene;
 		$jANI_numerator += $blast_results[2];
 		#backs up best hits for bootstrapping
-		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$query_handle\&$database_handle.log");
+		#PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$query_handle\&$database_handle.log");
 	}
 	close $fh;
 
@@ -499,9 +509,14 @@ sub FILE_I_O_CHECK{
 }
 
 sub VERBOSEPRINT{
+	#prints a message to screen if it's verbosity level is below the users desired level.
+	#additionally if a log file name has been provided, prints message to file
 	(my $verblevel, my $message) = @_;
 	if($verblevel <= $verbosity){
 		print "$message\n";
+	}
+	if(!$printlog == 0){
+		PRINT_TO_FILE($message,$printlog);
 	}
 }
 
@@ -593,19 +608,34 @@ sub PRINT_TO_FILE{
 	close $fh;
 }
 
-sub RECOVER_SETUP_INFORMATION{
-	#recovers split genome locations and whole genome lengths.
+sub RECOVER_INFORMATION_HASH{
+	#recovers key and value data from log file
 	VERBOSEPRINT(1, "Recovering setup data from previous run.\n");
 	my $infile = shift;
-	my %genome_setup_backup;
+	my %backup;
 	open(my $BACKUP, "< $infile");
 	while(<$BACKUP>){
 		chomp;
 		my @recovered = split(/\t/,$_);
-		$genome_setup_backup{$recovered[0]}=$recovered[1];
+		$backup{$recovered[0]}=$recovered[1];
 	}
 	close $BACKUP;
-	return(%genome_setup_backup);
+	return(%backup);
+}
+
+sub RECOVER_INFORMATION_ARRAY{
+	#recovers array from log file.
+	VERBOSEPRINT(1, "Recovering BLAST search data from previous run.\n");
+	my $infile = shift;
+	my @backup;
+	open(my $BACKUP, "< $infile");
+	while(<$BACKUP>){
+		chomp;
+		my @recovered = split(/\t/,$_);
+		push(@backup,$recovered[0]);
+	}
+	close $BACKUP;
+	return(@backup);
 }
 
 #May remake in future. For now, scrapping feature
@@ -649,6 +679,8 @@ sub RENAME_INPUT_FILES{
 }
 
 sub TEST_HASH{
+	#holdover testing tool incase needed for debugging.
+	#prints contents of hash to screen as well as name of the hash provided
 	my $hash_name = shift;
 	my $hash_ref = shift;
 	my %hash = %{$hash_ref};
