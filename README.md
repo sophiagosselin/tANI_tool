@@ -35,7 +35,8 @@ Be warry of comparisons between genomes with wildly different sizes (e.g. a 2MB 
 To run, include the script in the same working directory as the genomes you wish to make a phylogeny of. Genome files should be in fasta format, and have one of the following extentions: .fna, .fasta, .contig, .contigs. Be aware that input files within the home directory will be edited to remove special characters; however, the original unedited inputs can be found in "intermediates/unchanged_inputs" after initial setup.
 
 
-Usage: perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
+Usage:
+	perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
 
 
 #### IMPORTANT: tANI tool has a checkpointing system. If your run is interupted simply rerun your original command in the starting directory, and the code will backup from the logs file in your run directory.
@@ -43,24 +44,24 @@ Usage: perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstr
 
 Required Inputs:
 
-[id]: Percent identity cutoff for inclusion of BLAST hit in tANI calculation. Default: .7
+	[id]: Percent identity cutoff for inclusion of BLAST hit in tANI calculation. Default: .7
 
-[cv]: Percent coverage cutoff for inclusion of BLAST hit in tANI calculation. Default: .7
+	[cv]: Percent coverage cutoff for inclusion of BLAST hit in tANI calculation. Default: .7
 
 
 Optional Inputs:
 
-[e]: Evalue cutoff for inclusion. Default: 1e-4
+	[e]: Evalue cutoff for inclusion. Default: 1e-4
 
-[task]: Setting BLAST uses for its search criteria (see -task in BLAST).
+	[task]: Setting BLAST uses for its search criteria (see -task in BLAST).
 
-[boot OR bt]: Number of non-parametric tANI bootstraps. Default: 0
+	[boot OR bt]: Number of non-parametric tANI bootstraps. Default: 0
 
-[v]: Verbosity level. 1 for key checkpoints only. 2 for all messages. Default: 0
+	[v]: Verbosity level. 1 for key checkpoints only. 2 for all messages. Default: 0
 
-[log OR l]: Name of file to print logs to. If none is provided program prints messages to screen only. Default: None
+	[log OR l]: Name of file to print logs to. If none is provided program prints messages to screen only. Default: None
 
-[t]: Thread count. Default will use half of available cores.
+	[t]: Thread count. Default will use half of available cores.
 	
 
 
