@@ -38,9 +38,7 @@ To run, include the script in the same working directory as the genomes you wish
 Usage: perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
 
 
-IMPORTANT: tANI tool has a checkpointing system.
- 
- If your run is interupted simply rerun your original command in the starting directory.
+#### IMPORTANT: tANI tool has a checkpointing system. If your run is interupted simply rerun your original command in the starting directory, and the code will backup from the logs file in your run directory.
 
 
 Required Inputs:
