@@ -24,7 +24,7 @@ GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=
 #check for help call
 if($help==1){
 	die
-	"\ntANI tool v1.2.5 Updated from tANI_low_mem.pl\n
+	"\ntANI tool v1.3.0 Updated from tANI_low_mem.pl\n
 	Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.\n
 	Please cite\: \"Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support\"\n
 	Sophia Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten\n
@@ -40,7 +40,7 @@ if($help==1){
 	OR to sophia.gosselin\@uconn.edu
 
 
-	Usage: perl tANI.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
+	Usage: perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
 
 	IMPORTANT: tANI tool has a checkpointing system.
 	 If your run is interupted simply rerun your original command in the starting directory.
