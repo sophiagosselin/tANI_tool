@@ -32,7 +32,7 @@ Be warry of comparisons between genomes with wildly different sizes (e.g. a 2MB 
 ## Usage and Help Text.
 
 
-To run, include the script in the same working directory as the genomes you wish to make a phylogeny of. Genome files should be in fasta format, and have one of the following extentions: .fna, .fasta, .contig, .contigs. Be aware that input files within the home directory will be edited to remove special characters; however, the original unedited inputs can be found in "intermediates/unchanged_inputs" after initial setup.
+To run, include the script in the same working directory as the genomes you wish to compute pair-wise comparisons for. Your genome files should be in fasta format, and have one of the following extentions: .fna, .fasta, .contig, .contigs. Be aware that input files within the home directory will be edited to remove special characters; however, the original unedited inputs can be found in "intermediates/unchanged_inputs" after initial setup.
 
 
 ### Usage:
