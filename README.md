@@ -6,7 +6,7 @@
 
 Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.
 Please cite
-
+	
 	Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support
 	
 	Sophia Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten
