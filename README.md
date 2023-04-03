@@ -1,6 +1,6 @@
 # tANI_tool
 
-## As of 03/30/2023 the new version of the code should be functional; however the backup functionality is still broken. If you need to restart a run, do so in a clearn directory. See tANI_tool.pl Legacy versions are located in a seperate directory. 
+## As of 03/30/2023 the new version of the code (tANI_tool.pl) should be functional; however the backup functionality is still broken. If you need to restart a run, do so in a clean directory. Legacy versions are located in a seperate directory. 
 
 These perl scripts allow one to reconstruct the results of https://doi.org/10.1101/2020.01.15.908137.
 
