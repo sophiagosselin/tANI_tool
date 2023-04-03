@@ -36,9 +36,9 @@ To run, include the script in the same working directory as the genomes you wish
 
 ### Dependencies:
 
-	perl 
+	perl v5.36.0 and up
 	
-	BLAST
+	BLAST v2.11.0 and up
 
 ### Usage:
 
