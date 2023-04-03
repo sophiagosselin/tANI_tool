@@ -1,6 +1,6 @@
 # tANI_tool version 1.3.0
 
-### As of 04/03/2023 the new version of the code (tANI_tool.pl) is functional. I would highly reccomend to use it instead of the original legacy versions. If you do need or desire one of the legacy packages, they are still available. 
+#### As of 04/03/2023 the new version of the code (tANI_tool.pl) is functional. I would highly reccomend to use it instead of the original legacy versions. If you do need or desire one of the legacy packages, they are still available. 
 
 ## General Information
 
@@ -66,4 +66,4 @@ Optional Inputs:
 	
 
 
-NOTE: default ID, CV, and EVAL values are set to match those of Gosselin et al. 2020.
+#### NOTE: default ID, CV, and EVAL values are set to match those of Gosselin et al. 2020.
