@@ -352,7 +352,7 @@ sub CALCULATE_METRICS{
 		$gANI_denominator += $shorter_gene;
 		$jANI_numerator += $blast_results[2];
 		#backs up best hits for bootstrapping
-		#PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$query_handle\&$database_handle.log");
+		PRINT_TO_FILE("$blast_results[0]\t$blast_results[2]\t$blast_results[3]\t$shorter_gene\n","intermediates/calc_backup/$query_handle\&$database_handle.log");
 	}
 	close $fh;
 
