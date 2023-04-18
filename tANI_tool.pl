@@ -210,7 +210,7 @@ sub MAIN{
 	foreach my $entry (@input_files){
 		my($genome_name)=($entry=~/(.*?)\..*/);
 		push(@names_for_output,$genome_name);
-		push(@calculations,"$genome_name\&$genome_name\t0\t0\t0\t13");
+		push(@calculations,"$genome_name\&$genome_name\t100\t100\t1\t0");
 	}
 
 	#send calculations to output files
@@ -231,7 +231,7 @@ sub MAIN{
 			my(@bootstrap_calculations)=@{$calc_reference};
 			foreach my $entry (@input_files){
 				my($genome_name)=($entry=~/(.*?)\..*/);
-				push(@bootstrap_calculations,"$genome_name\&$genome_name\t0\t0\t0\t13");
+				push(@bootstrap_calculations,"$genome_name\&$genome_name\t100\t100\t1\t0");
 			}
 			#need to add a method for pushing self-self to array
 			VERBOSEPRINT(1,"Printing bootstap $for_verbose to file.\n");
