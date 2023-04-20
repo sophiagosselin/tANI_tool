@@ -34,6 +34,9 @@ Be warry of comparisons between genomes with wildly different sizes (e.g. a 2MB 
 
 To run, include the script in the same working directory as the genomes you wish to compute pair-wise comparisons for. Your genome files should be in fasta format, and have one of the following extentions: .fna, .fasta, .contig, .contigs. Be aware that input files within the home directory will be edited to remove special characters; however, the original unedited inputs can be found in "intermediates/unchanged_inputs" after initial setup.
 
+#### IMPORTANT: tANI tool has a checkpointing system. If your run is interupted simply rerun your original command in the starting directory, and the code will backup from the logs file in your run directory.
+
+
 ### Dependencies:
 
 	perl v5.36.0 and up
@@ -43,9 +46,6 @@ To run, include the script in the same working directory as the genomes you wish
 ### Usage:
 
 	perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
-
-
-#### IMPORTANT: tANI tool has a checkpointing system. If your run is interupted simply rerun your original command in the starting directory, and the code will backup from the logs file in your run directory.
 
 
 Required Inputs:
