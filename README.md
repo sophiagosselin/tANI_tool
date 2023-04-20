@@ -48,14 +48,11 @@ To run, include the script in the same working directory as the genomes you wish
 	perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
 
 
-Required Inputs:
+Optional Inputs:
 
 	[id]: Percent identity cutoff for inclusion of BLAST hit in tANI calculation. Default: .7
 
 	[cv]: Percent coverage cutoff for inclusion of BLAST hit in tANI calculation. Default: .7
-
-
-Optional Inputs:
 
 	[e]: Evalue cutoff for inclusion. Default: 1e-4
 
