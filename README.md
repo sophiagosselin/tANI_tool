@@ -45,7 +45,7 @@ To run, include the script in the same working directory as the genomes you wish
 
 ### Usage:
 
-	perl tANI_tool.pl -id percent ID cutoff -cv coverage cutoff -boot bootstrap #
+	perl tANI_tool.pl -id your_%_here -cv your_%_here -boot bootstrap_#_here
 
 
 Optional Inputs:
@@ -68,4 +68,4 @@ Optional Inputs:
 	
 
 
-#### NOTE: default ID, CV, and EVAL values are set to match those of Gosselin et al. 2020.
+#### NOTE: Default ID, CV, and E values are set to match those of Gosselin et al. 2020.
