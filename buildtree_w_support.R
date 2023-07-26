@@ -4,7 +4,7 @@
 
 # If you are not using the tANI script you will need to change these inputs. 
 # Make sure your bootstrapped matrices have a unique file extension i.e. .matrix
-ANI_orig_file <- "Distance_.orig"
+ANI_orig_file <- "tANI_original.matrix"
 bootstrap_suffix <- "*.matrix"
 
 library(ape)
