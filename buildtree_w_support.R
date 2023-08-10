@@ -1,10 +1,10 @@
 # Built for use with the tANI distance and associated methodology
-# Hence matrices are not symmetrical and need to be averaged 
+# Hence matrices are not symmetrical and need to be averaged
 
 
-# If you are not using the tANI script you will need to change these inputs. 
+# If you are not using the tANI script you will need to change these inputs.
 # Make sure your bootstrapped matrices have a unique file extension i.e. .matrix
-ANI_orig_file <- "Distance_.orig"
+ANI_orig_file <- "tANI_original.matrix"
 bootstrap_suffix <- "*.matrix"
 
 library(ape)
@@ -43,20 +43,20 @@ for(a in 1:length(file_list)){
 }
 
 for(b in 1:length(BS_set)){
-  
+
   BS_current <- BS_set[[b]]
   #Grab diag for later overwrite
   ANI_BS_diag <- diag2vec(BS_current)	#Pull out the diagonal of the ANI matrix
-  
+
   # Transpose matrix to flip triangles
   t_ANI_BS <- t(BS_current)
-  
+
   # Average the two triangle
   Comb_ANI_BS <- (BS_current + t_ANI_BS) / 2
-  
+
   # Reassert the diagonal
   diag(Comb_ANI_BS) <- ANI_BS_diag
-  
+
   bs_tree <- fastme.bal(Comb_ANI_BS, nni = TRUE, spr = TRUE, tbr = TRUE)
   write.tree(bs_tree,file="BootstrapTrees.tre",append=TRUE)
 }
@@ -67,12 +67,10 @@ for(b in 1:length(BS_set)){
 bs_trees <- read.tree(file="BootstrapTrees.tre")
 
 #bring in the bootsrapped trees from the file
-tree_orig <- read.tree(file="BestTree.tre")	
+tree_orig <- read.tree(file="BestTree.tre")
 
 #map the trees as splits with frequencies of splits
 clade_map <- as.splits(bs_trees)
 
 #Plots the bootstrap splits onto best tree
 write.tree(plotBS(tree_orig,bs_trees,p=1),file="BestTree_wSupport.tre")
-
-
