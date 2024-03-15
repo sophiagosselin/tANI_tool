@@ -24,7 +24,7 @@ GetOptions('t=i' => \$thread_limit, 'v=i' =>\$verbosity, 'task=s' =>\$task, 'id=
 #check for help call
 if($help==1){
 	die
-	"\ntANI tool v1.3.0 Updated from tANI_low_mem.pl\n
+	"\ntANI tool v1.3.1 Updated from tANI_low_mem.pl\n
 	Pairwise whole genome comparison via total average nucleotid identity (tANI). Non-parametric bootstrap capabilities included.\n
 	Please cite\: \"Improving Phylogenies Based on Average Nucleotide Identity, Incorporating Saturation Correction and Nonparametric Bootstrap Support\"\n
 	Sophia Gosselin, Matthew S Fullmer, Yutian Feng, Johann Peter Gogarten\n
