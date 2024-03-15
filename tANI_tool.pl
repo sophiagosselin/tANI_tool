@@ -219,7 +219,7 @@ sub MAIN{
 	}
 
 	#send calculations to output files
-	OUTPUT("original",\@calculations,\@names_for_output);
+	OUTPUT("original","matrix",\@calculations,\@names_for_output);
 
 	#if bootstrapping is needed, begin here
 	if($bootnum eq 0){
@@ -240,7 +240,7 @@ sub MAIN{
 			}
 			#need to add a method for pushing self-self to array
 			VERBOSEPRINT(1,"Printing bootstap $for_verbose to file.\n");
-			OUTPUT($boot_counter,\@bootstrap_calculations,\@names_for_output);
+			OUTPUT($boot_counter,"boot",\@bootstrap_calculations,\@names_for_output);
 		}
 		return();
 	}
@@ -445,6 +445,7 @@ sub OUTPUT{
 	#and an array of headers
 	#prints resulting matrices to files.
 	my $string_to_append = shift;
+	my $file_extension = shift;
 	my $array_ref = shift;
 	my $array_ref2 = shift;
 	my @unhashed_information = @{$array_ref};
@@ -469,10 +470,10 @@ sub OUTPUT{
 	my($tANI_matrix)=MATRIX_FROM_HASH(\%tANI,@names);
 
 	#print matrices to file
-	PRINT_TO_FILE($jANI_matrix,"outputs/jANI/jANI_$string_to_append.matrix");
-	PRINT_TO_FILE($gANI_matrix,"outputs/gANI/gANI_$string_to_append.matrix");
-	PRINT_TO_FILE($AF_matrix,"outputs/AF/AF_$string_to_append.matrix");
-	PRINT_TO_FILE($tANI_matrix,"outputs/tANI/tANI_$string_to_append.matrix");
+	PRINT_TO_FILE($jANI_matrix,"outputs/jANI/jANI_$string_to_append\.$file_extension");
+	PRINT_TO_FILE($gANI_matrix,"outputs/gANI/gANI_$string_to_append\.$file_extension");
+	PRINT_TO_FILE($AF_matrix,"outputs/AF/AF_$string_to_append\.$file_extension");
+	PRINT_TO_FILE($tANI_matrix,"outputs/tANI/tANI_$string_to_append\.$file_extension");
 }
 
 sub MATRIX_FROM_HASH{
