@@ -464,10 +464,17 @@ sub MATRIX_FROM_HASH{
 	my %matrix_data = %{$hashref};
 	my @matrix_header = @_;
 	my $matrix_string ="";
+	my $firstentry = 0;
 
 	#create matrix header
 	foreach my $header (sort @matrix_header){
-		$matrix_string.="$header\t";
+		if($firstentry == 0){
+			$firstentry = 1;
+			$matrix_string.="$header";
+		}
+		else{
+			$matrix_string.="\t$header";
+		}
 	}
 
 	#convert hash to matrix
@@ -475,10 +482,10 @@ sub MATRIX_FROM_HASH{
 	foreach my $entry (sort keys %matrix_data){
 		my($query_name)=($entry=~/(.*?)\&.*/);
 		if($query_name ne $current_query_name){
-			$matrix_string.="\n$query_name\t";
+			$matrix_string.="\n$query_name";
 			$current_query_name = $query_name;
 		}
-		$matrix_string.="$matrix_data{$entry}\t";
+		$matrix_string.="\t$matrix_data{$entry}";
 	}
 	return($matrix_string);
 }
