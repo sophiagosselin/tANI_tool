@@ -36,6 +36,11 @@ if($help==1){
 	Be aware that input files within the home directory will be edited to remove special characters;
 	However, the original unedited inputs can be found in intermediates/unchanged_inputs after initial setup.
 
+	Finally, be careful if you get a tANI value of 13 between 2 genomes.
+	This is an arbitrary value that we assign to 2 genomes between which there were no matches within cutoff parameters.
+	Consider removing one or both of these genomes if this occurs.
+	Refer to the github below, or the original manuscript for advice on genome inclusion.
+
 	Please report any problems to the GitHub: https\:\/\/github.com\/sophiagosselin\/tANI_Matrix
 	OR to sophia.gosselin\@uconn.edu
 
@@ -358,10 +363,23 @@ sub CALCULATE_METRICS{
 
 	#calculation time
 	my $total_matches = keys %best_hits;
-	my $jANI = ($jANI_numerator/$total_matches);
-	my $gANI = ($gANI_numerator/$gANI_denominator);
-	my $AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
-	my $tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
+
+	#first check if there were no hits between the 2 genomes
+	my($jANI,$gANI,$AF,$tANI);
+	if($total_matches == 0){
+		VERBOSEPRINT(1,"There were no blast hits between $query_handle and $database_handle that matched with values within cutoff criterion.\nCheck the completion % of, and consider removing one or both of these genomes from your analysis.\n\n");
+		$jANI = 0;
+		$gANI = 0;
+		$AF = 0;
+		$tANI = 13; #this value is arbitrary - it should serve as a warning but still allow a buildable matrix
+	}
+	#so long as there is at least 1 good match
+	else{
+		$jANI = ($jANI_numerator/$total_matches);
+		$gANI = ($gANI_numerator/$gANI_denominator);
+		$AF = ($gANI_denominator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
+		$tANI = -log($gANI_numerator/$split_genomes_and_lengths{"intermediates/splits/$query_handle.fasta.split"});
+	}
 
 	#return calculations with the following format:
 	#Query_Genome&Database_Genome	jANI	gANI	AF	tANI
