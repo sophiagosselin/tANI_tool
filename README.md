@@ -26,7 +26,10 @@ Note that the gANI and AF metrics do not apply to only ORF's as per the original
 One may use genomes with any degree of genome completion; however, low quality assemblies with contigs smaller than 1020 nt will result in large losses of meaningfull phylogenetic information. Therefore one should always strive to use genome assemblies with the lowest number of these small contigs as possible. In general, the higher the level of completion, the better, and always be critical of phylogenies built from lower quality assemblies. For the purposes of the original manuscript, anything below 80% completion was discarded, but better results are obtained when using a more stringent cutoff (90% and up).
 
 
-Be warry of comparisons between genomes with wildly different sizes (e.g. a 2MB genome vs a 6MB genome). Such differences will lead to potentially inflated AF results, and hence an inflated tANI distance between these taxa. 
+Be warry of comparisons between genomes with wildly different sizes (e.g. a 2MB genome vs a 6MB genome). Such differences will lead to potentially inflated AF results, and hence an inflated tANI distance between these taxa.
+
+
+If the output matrix reports a value of exactly 13 between two taxa, then there were no BLAST hits between the two genomes (for that specific query-subject pair) that passed your coverage, percent identity, or e-value cutoffs. If this is true for a single query across all subjects then that genome may simply be too divergent from the rest of your samples to get an accurate estimation of distance.  
 
 
 ## Usage and Help Text.
