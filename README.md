@@ -29,7 +29,7 @@ One may use genomes with any degree of genome completion; however, low quality a
 Be warry of comparisons between genomes with wildly different sizes (e.g. a 2MB genome vs a 6MB genome). Such differences will lead to potentially inflated AF results, and hence an inflated tANI distance between these taxa.
 
 
-If the output matrix reports a value of exactly 13 between two taxa, then there were no BLAST hits between the two genomes (for that specific query-subject pair) that passed your coverage, percent identity, or e-value cutoffs. If this is true for a single query across all subjects then that genome may simply be too divergent from the rest of your samples to get an accurate estimation of distance.  
+If the output matrix reports a value of exactly 13 between two taxa, then there were no BLAST hits between the two genomes (for that specific query-subject pair) that passed one of the following cutoffs: coverage, percent identity, or e-value. If this is true for a single query across all subjects then that genome may simply be too divergent from the rest of your samples to get an accurate estimation of distance.  
 
 
 ## Usage and Help Text.
