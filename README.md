@@ -39,6 +39,7 @@ To run, include the script in the same working directory as the genomes you wish
 
 #### IMPORTANT: tANI tool has a checkpointing system. If your run is interupted simply rerun your original command in the starting directory, and the code will backup from the logs file therin.
 
+Note that the checkpointing system can cause issues if you attempt to rerun the script from a directory where tANI ran to completion (even if there were errors along the way). So if you do encounter a bug please try to rerun the program after removing the files created by tANI_tool.pl.
 
 ### Dependencies:
 
